@@ -25,6 +25,20 @@
   유지가 필요한 값은 그대로 둡니다.
 - 외부 자료에서 가져온 공식 명칭은 임의로 번역하지 않습니다.
 
+## 로컬 환경 주의
+
+- 이 Windows 환경에서는 `rg.exe`가 `Access is denied`로 실행되지 않을 수
+  있습니다. 그런 경우 같은 내용을 `Get-ChildItem -Recurse -File`과
+  `Select-String`으로 우회합니다.
+- 문서는 UTF-8로 저장되어 있지만 PowerShell 기본 출력 인코딩 때문에 한글이
+  깨져 보일 수 있습니다. 파일을 읽을 때는 `Get-Content -Encoding UTF8`을
+  사용하고, Python 등으로 한글을 출력할 때는 필요하면 다음을 먼저 설정합니다.
+
+```powershell
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+```
+
 ## 공개 동작을 바꾸기 전에
 
 1. `README.md`를 읽습니다.
