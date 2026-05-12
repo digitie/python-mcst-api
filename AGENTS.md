@@ -14,7 +14,7 @@
   구현합니다.
 - 도서관은 위치 또는 운영 정보만 포함합니다. 소장자료, 서지, ISBN,
   국가자료종합목록, 추천도서, 장서 검색 API는 제외합니다.
-- `pymcst.catalog`를 지원 데이터셋의 단일 기준으로 봅니다.
+- `mcst.catalog`를 지원 데이터셋의 단일 기준으로 봅니다.
 
 ## 문서 언어 규칙
 
@@ -56,22 +56,22 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 1. `README.md`를 읽습니다.
 2. `docs/catalog.md`를 읽습니다.
-3. 대상 항목을 `pymcst/catalog.py`에서 확인합니다.
+3. 대상 항목을 `src/mcst/catalog.py`에서 확인합니다.
 4. fixture로 쉽게 검증 가능한 동작은 오프라인 테스트를 먼저 추가하거나
    갱신합니다.
 5. 공개 API 또는 지원 카탈로그가 바뀌면 같은 패치에서 문서도 갱신합니다.
 
 ## 모듈 책임
 
-- `pymcst.catalog`: 선별 데이터/API 목록과 포함/제외 판단의 기준입니다.
-- `pymcst._http`: 세션, 재시도, 응답 정규화, 제공자 오류 매핑을 담당합니다.
-- `pymcst._convert`: 응답 경계에서 쓰는 작은 변환 헬퍼입니다.
-- `pymcst.models`: 공개 Pydantic 응답 모델입니다.
-- `pymcst.culture`: `culture.go.kr`/KCISA OpenAPI 클라이언트입니다.
-- `pymcst.data_go`: 공공데이터포털 ODCloud 자동변환 파일 API 클라이언트입니다.
-- `pymcst.file_data`: 직접 파일 다운로드와 CSV 파싱 헬퍼입니다.
-- `pymcst.client`: 상위 편의 클라이언트입니다.
-- `pymcst.exceptions`: 공개 예외 계층입니다.
+- `mcst.catalog`: 선별 데이터/API 목록과 포함/제외 판단의 기준입니다.
+- `mcst._http`: 세션, 재시도, 응답 정규화, 제공자 오류 매핑을 담당합니다.
+- `mcst._convert`: 응답 경계에서 쓰는 작은 변환 헬퍼입니다.
+- `mcst.models`: 공개 Pydantic 응답 모델입니다.
+- `mcst.culture`: `culture.go.kr`/KCISA OpenAPI 클라이언트입니다.
+- `mcst.data_go`: 공공데이터포털 ODCloud 자동변환 파일 API 클라이언트입니다.
+- `mcst.file_data`: 직접 파일 다운로드와 CSV 파싱 헬퍼입니다.
+- `mcst.client`: 상위 편의 클라이언트입니다.
+- `mcst.exceptions`: 공개 예외 계층입니다.
 - `tests`: 기본은 오프라인 테스트이며, live 테스트는 반드시 명시적으로
   표시합니다.
 
@@ -100,10 +100,10 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 ## 검증 명령
 
 ```bash
-python -m compileall pymcst tests
+python -m compileall src/mcst tests
 python -m pytest
 python -m ruff check .
-python -m mypy pymcst
+python -m mypy src/mcst
 ```
 
 실제 서비스를 검증할 때만 live 테스트를 실행합니다.
@@ -117,7 +117,7 @@ python -m pytest -m live
 같은 패치에서 관련 문서를 갱신합니다.
 
 - 사용자용 사용법 변경: `README.md`
-- 지원 데이터/API 변경: `docs/catalog.md`, `pymcst/catalog.py`
+- 지원 데이터/API 변경: `docs/catalog.md`, `src/mcst/catalog.py`
 - 사용자에게 보이는 오류 동작 변경: 관련 테스트와 필요 시 `README.md`
 - 에이전트 작업 방식 변경: 이 파일
 

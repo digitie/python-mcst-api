@@ -1,4 +1,4 @@
-"""pymcst 예외 계층입니다."""
+"""mcst 예외 계층입니다."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 
 class McstError(Exception):
-    """모든 pymcst 오류의 기본 예외입니다."""
+    """모든 mcst 오류의 기본 예외입니다."""
 
     def __init__(
         self,

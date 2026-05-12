@@ -44,7 +44,9 @@ class SessionLike(Protocol):
 
 
 TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
-DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; pymcst/0.1; +https://github.com/digitie/pymcst)"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (compatible; mcst/0.1; +https://github.com/digitie/python-mcst-api)"
+)
 
 
 @dataclass(frozen=True, slots=True)

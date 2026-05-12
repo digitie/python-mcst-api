@@ -1,12 +1,14 @@
-# pymcst
+# python-mcst-api
 
-`pymcst`는 문화체육관광부 및 산하기관의 공개 데이터 중 여행, 여가, 숙박, 문화시설, 도서관 위치/운영 정보에 맞춘 비공식 Python 클라이언트입니다.
+`python-mcst-api`는 문화체육관광부 및 산하기관의 공개 데이터 중 여행, 여가, 숙박, 문화시설, 도서관 위치/운영 정보에 맞춘 비공식 Python 클라이언트입니다.
 
 한국관광공사 제공 서비스, 행정안전부/지자체 단독 제공 자료, 도서관 소장자료/서지/ISBN/추천도서 데이터는 제외했습니다.
 
 현재 구현은 선별형이지만 `culture.go.kr`의 다른 OpenAPI와 파일데이터도 같은 카탈로그 구조로 확장할 수 있습니다. 전체 목록 조사표는 [docs/culture-go-kr-full-catalog.md](docs/culture-go-kr-full-catalog.md)에 정리했습니다.
 
 ## 설치
+
+배포 패키지 이름은 `python-mcst-api`이고, Python 코드에서 사용하는 import 이름은 `mcst`입니다.
 
 ```bash
 pip install -e .[dev]
@@ -35,7 +37,7 @@ $env:TRIPMATE_DATA_GO_SERVICE_KEY="..."
 ## 빠른 사용
 
 ```python
-from pymcst import McstClient
+from mcst import McstClient
 
 client = McstClient.from_env()
 

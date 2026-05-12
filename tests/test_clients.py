@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from pymcst import CultureOpenApiClient, DataGoFileApiClient, FileDataClient
-from pymcst.exceptions import McstAuthError, McstRequestError
+from mcst import CultureOpenApiClient, DataGoFileApiClient, FileDataClient
+from mcst.exceptions import McstAuthError, McstRequestError
 
 
 @dataclass

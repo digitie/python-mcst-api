@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pymcst import ALL_DATASETS, CULTURE_OPEN_APIS, FILE_DATASETS
-from pymcst.catalog import DatasetKind
+from mcst import ALL_DATASETS, CULTURE_OPEN_APIS, FILE_DATASETS
+from mcst.catalog import DatasetKind
 
 
 def test_catalog_excludes_kto_and_non_mcst_sources():

@@ -5,8 +5,8 @@ import socket
 
 import pytest
 
-from pymcst import CultureOpenApiClient, DataGoFileApiClient
-from pymcst.exceptions import McstAuthError, McstError
+from mcst import CultureOpenApiClient, DataGoFileApiClient
+from mcst.exceptions import McstAuthError, McstError
 
 pytestmark = pytest.mark.live
 

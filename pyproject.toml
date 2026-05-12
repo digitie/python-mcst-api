@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pymcst"
+name = "python-mcst-api"
 version = "0.1.0"
 description = "Unofficial Python client for selected MCST culture, leisure, travel, lodging, and library-location datasets."
 readme = "README.md"
@@ -38,11 +38,15 @@ dev = [
   "types-requests>=2.31",
 ]
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+
 [tool.setuptools.packages.find]
-include = ["pymcst*"]
+where = ["src"]
+include = ["mcst*"]
 
 [tool.setuptools.package-data]
-pymcst = ["py.typed"]
+mcst = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
@@ -59,6 +63,7 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+pythonpath = ["src"]
 markers = [
   "live: tests that call real MCST/KCISA/data.go.kr services and require TRIPMATE_DATA_GO_SERVICE_KEY or another service key",
 ]
