@@ -1,0 +1,86 @@
+{
+  "name": "normal.xml_response",
+  "function": "culture.leisure_activity_facilities",
+  "description": "KCISA XML 응답을 저장한 fixture replay 케이스",
+  "input": {
+    "dataset": "leisure_activity_facilities",
+    "keyword": null,
+    "page_no": 1,
+    "num_of_rows": 1,
+    "params": {}
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.kcisa.kr/openapi/API_CIA_082/request",
+    "query": {
+      "serviceKey": "<REDACTED>",
+      "numOfRows": 1,
+      "pageNo": 1
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/xml"
+    },
+    "body": {
+      "response": {
+        "header": {
+          "resultCode": "00",
+          "resultMsg": "OK"
+        },
+        "body": {
+          "pageNo": "1",
+          "numOfRows": "1",
+          "totalCount": "1",
+          "items": {
+            "item": {
+              "title": "테스트 시설",
+              "address": "서울시 중구",
+              "latitude": "37.5",
+              "longitude": "127.0"
+            }
+          }
+        }
+      }
+    }
+  },
+  "parsed": {},
+  "processed": {
+    "items": [
+      {
+        "name": "테스트 시설",
+        "address": "서울시 중구",
+        "tel": null,
+        "url": null,
+        "longitude": 127.0,
+        "latitude": 37.5,
+        "category": null,
+        "raw": {
+          "title": "테스트 시설",
+          "address": "서울시 중구",
+          "latitude": "37.5",
+          "longitude": "127.0"
+        }
+      }
+    ],
+    "page_no": 1,
+    "num_of_rows": 1,
+    "total_count": 1,
+    "endpoint": null
+  },
+  "assertion": {
+    "mode": "snapshot",
+    "exclude_fields": [
+      "fetched_at",
+      "request_id",
+      "updated_at"
+    ],
+    "required_fields": []
+  },
+  "meta": {
+    "created_at": "2026-05-15T20:30:00+09:00",
+    "library_version": "0.1.0",
+    "source": "debug_ui"
+  }
+}

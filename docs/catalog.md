@@ -11,6 +11,38 @@
 
 전체 웹사이트 목록과 카테고리별 구현 여부는 [culture.go.kr 전체 목록 조사표](culture-go-kr-full-catalog.md)를 참고합니다.
 
+디버그 UI에서 저장한 replay fixture의 구조와 테스트 방식은 [디버그 UI fixture와 replay 테스트](debug-fixtures.md)를 참고합니다.
+
+## 카탈로그 함수
+
+라이브러리에서 현재 선별 카탈로그를 JSON 직렬화 가능한 형태로 꺼낼 수 있습니다.
+
+```python
+from mcst import DatasetKind, get_api_catalog
+
+for item in get_api_catalog(kind=DatasetKind.KCISA_OPEN_API):
+    print(item["label"], item["endpoint_url"])
+```
+
+`label`은 `한국문화정보원_카페가 있는 서점데이터 (cafe_bookstores)`처럼
+사람이 읽는 데이터셋명과 slug를 함께 담습니다.
+
+문체부/KCISA API는 API별 활용 신청과 서비스키가 다를 수 있습니다. 단일
+키를 모든 API에 쓰려면 `service_key="..."`를 넘기고, API별 키가 필요하면
+slug를 기준으로 `service_keys`를 넘깁니다.
+
+```python
+from mcst import CultureOpenApiClient
+
+client = CultureOpenApiClient(
+    service_keys={
+        "cafe_bookstores": "...",
+        "leisure_activity_facilities": "...",
+    }
+)
+page = client.cafe_bookstores(num_of_rows=10)
+```
+
 ## 구현된 API
 
 | slug | 제공기관 | 원천 |

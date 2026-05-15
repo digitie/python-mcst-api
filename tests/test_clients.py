@@ -70,6 +70,19 @@ def test_culture_client_parses_xml_page_and_hides_service_key_from_model():
     assert session.calls[0][1]["serviceKey"] == "secret-key"
 
 
+def test_culture_client_prefers_dataset_service_key():
+    session = FakeSession(FakeResponse("{}", headers={"Content-Type": "application/json"}))
+    client = CultureOpenApiClient(
+        service_key="fallback-key",
+        service_keys={"cafe_bookstores": "  cafe-key  "},
+        session=session,
+    )
+
+    client.cafe_bookstores()
+
+    assert session.calls[0][1]["serviceKey"] == "cafe-key"
+
+
 def test_culture_client_requires_key_when_calling_endpoint():
     client = CultureOpenApiClient(service_key=None, session=FakeSession(FakeResponse("{}")))
 
@@ -90,6 +103,20 @@ def test_data_go_client_parses_odcloud_shape():
     assert page.total_count == 2
     assert page.items == ({"클래스 타이틀": "도예 클래스"},)
     assert "serviceKey" in session.calls[0][1]
+
+
+def test_data_go_client_prefers_dataset_service_key():
+    response = FakeResponse('{"page":1,"perPage":1,"totalCount":0,"data":[]}')
+    session = FakeSession(response)
+    client = DataGoFileApiClient(
+        service_key="fallback-key",
+        service_keys={"leisure_classes_csv": "  class-key  "},
+        session=session,
+    )
+
+    client.leisure_classes(per_page=1)
+
+    assert session.calls[0][1]["serviceKey"] == "class-key"
 
 
 def test_file_client_reads_csv_with_encoding_fallback():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from .culture import CultureOpenApiClient
@@ -16,18 +17,21 @@ class McstClient:
         self,
         service_key: str | None = None,
         *,
+        service_keys: Mapping[str, str] | None = None,
         timeout: float = 10.0,
         retries: int = 3,
         session: Any | None = None,
     ) -> None:
         self.culture = CultureOpenApiClient(
             service_key=service_key,
+            service_keys=service_keys,
             timeout=timeout,
             retries=retries,
             session=session,
         )
         self.data_go = DataGoFileApiClient(
             service_key=service_key,
+            service_keys=service_keys,
             timeout=timeout,
             retries=retries,
             session=session,

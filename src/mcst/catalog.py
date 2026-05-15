@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 
 class SourcePortal(StrEnum):
@@ -428,6 +430,70 @@ ALL_DATASETS: dict[str, CatalogEntry] = {
     **FILE_DATASETS,
     **LINK_DATASETS,
 }
+
+
+def catalog_entry_to_dict(entry: CatalogEntry) -> dict[str, Any]:
+    """카탈로그 항목을 UI와 JSON 응답에서 쓰기 쉬운 dict로 변환합니다."""
+
+    return {
+        "slug": entry.slug,
+        "label": dataset_label(entry),
+        "title": entry.title,
+        "provider": entry.provider,
+        "kind": entry.kind.value,
+        "source": entry.source.value,
+        "detail_url": entry.detail_url,
+        "endpoint_url": entry.endpoint_url,
+        "file_url": entry.file_url,
+        "public_data_pk": entry.public_data_pk,
+        "public_data_detail_pk": entry.public_data_detail_pk,
+        "tags": list(entry.tags),
+        "notes": entry.notes,
+    }
+
+
+def dataset_label(entry: CatalogEntry | Mapping[str, Any]) -> str:
+    """사람이 알아보기 쉬운 데이터셋 표시명을 반환합니다."""
+
+    if isinstance(entry, CatalogEntry):
+        title = entry.title
+        slug = entry.slug
+    else:
+        title = str(entry.get("title") or "")
+        slug = str(entry.get("slug") or "")
+    return f"{title} ({slug})" if slug else title
+
+
+def iter_api_catalog(
+    *,
+    kind: DatasetKind | str | None = None,
+    include_links: bool = False,
+) -> tuple[CatalogEntry, ...]:
+    """선별된 API/파일 데이터 카탈로그 항목을 반환합니다.
+
+    기본값은 실제 호출 또는 다운로드 대상이 없는 링크 전용 항목을 제외합니다.
+    """
+
+    kind_value = DatasetKind(kind) if kind is not None else None
+    entries: Iterable[CatalogEntry] = ALL_DATASETS.values()
+    if kind_value is not None:
+        entries = [entry for entry in entries if entry.kind == kind_value]
+    elif not include_links:
+        entries = [entry for entry in entries if entry.kind != DatasetKind.LINK]
+    return tuple(sorted(entries, key=lambda entry: (entry.kind.value, entry.title, entry.slug)))
+
+
+def get_api_catalog(
+    *,
+    kind: DatasetKind | str | None = None,
+    include_links: bool = False,
+) -> tuple[dict[str, Any], ...]:
+    """API 카탈로그를 JSON 직렬화 가능한 dict 목록으로 반환합니다."""
+
+    return tuple(
+        catalog_entry_to_dict(entry)
+        for entry in iter_api_catalog(kind=kind, include_links=include_links)
+    )
 
 
 def get_dataset(slug: str) -> CatalogEntry:

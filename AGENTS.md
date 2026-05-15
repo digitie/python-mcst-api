@@ -71,6 +71,10 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 - `mcst.data_go`: 공공데이터포털 ODCloud 자동변환 파일 API 클라이언트입니다.
 - `mcst.file_data`: 직접 파일 다운로드와 CSV 파싱 헬퍼입니다.
 - `mcst.client`: 상위 편의 클라이언트입니다.
+- `mcst.debug`: Web UI나 로컬 디버그 도구가 쓸 `DebugRun`, 민감정보 마스킹,
+  fixture 저장 헬퍼입니다. Streamlit에는 의존하지 않습니다.
+- `mcst.replay`: 저장된 fixture response를 외부 API 호출 없이 다시 처리하는
+  테스트 replay 헬퍼입니다.
 - `mcst.exceptions`: 공개 예외 계층입니다.
 - `tests`: 기본은 오프라인 테스트이며, live 테스트는 반드시 명시적으로
   표시합니다.
@@ -87,6 +91,8 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 - 일반 테스트는 네트워크를 호출하지 않습니다.
 - HTTP 동작은 fake session 또는 fixture로 검증합니다.
+- 디버그 UI가 저장한 fixture는 `tests/fixtures/**/*.json`에 두고,
+  `tests/test_generated_fixtures.py`에서 replay 방식으로 검증합니다.
 - live 테스트는 반드시 `@pytest.mark.live`를 사용합니다.
 - live 테스트는 실제 데이터의 불안정한 값이 아니라 응답 형태와 오류 매핑을
   검증합니다.

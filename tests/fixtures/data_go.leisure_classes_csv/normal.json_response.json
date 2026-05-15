@@ -1,0 +1,62 @@
+{
+  "name": "normal.json_response",
+  "function": "data_go.leisure_classes_csv",
+  "description": "ODCloud JSON 응답을 저장한 fixture replay 케이스",
+  "input": {
+    "dataset": "leisure_classes_csv",
+    "page_no": 1,
+    "per_page": 1,
+    "params": {}
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.odcloud.kr/api/15111397/v1/uddi:b2a81057-13be-4bdb-a368-b753c19d3d61",
+    "query": {
+      "serviceKey": "<REDACTED>",
+      "page": 1,
+      "perPage": 1
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "page": 1,
+      "perPage": 1,
+      "totalCount": 1,
+      "data": [
+        {
+          "클래스 타이틀": "도예 클래스"
+        }
+      ]
+    }
+  },
+  "parsed": {},
+  "processed": {
+    "items": [
+      {
+        "클래스 타이틀": "도예 클래스"
+      }
+    ],
+    "page_no": 1,
+    "num_of_rows": 1,
+    "total_count": 1,
+    "endpoint": null
+  },
+  "assertion": {
+    "mode": "snapshot",
+    "exclude_fields": [
+      "fetched_at",
+      "request_id",
+      "updated_at"
+    ],
+    "required_fields": []
+  },
+  "meta": {
+    "created_at": "2026-05-15T20:30:00+09:00",
+    "library_version": "0.1.0",
+    "source": "debug_ui"
+  }
+}

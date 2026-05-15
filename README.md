@@ -23,6 +23,10 @@ pip install -e .[dev]
 ## 인증키
 
 KCISA OpenAPI와 공공데이터포털 자동변환 API는 서비스키가 필요합니다.
+직접 전달하거나 UI에 붙여넣은 키는 앞뒤 공백과 감싸는 따옴표를 제거한 뒤
+요청 파라미터에 넣습니다.
+문체부/KCISA API는 API별 활용 신청 상태가 다를 수 있으므로 slug별 키도
+전달할 수 있습니다.
 
 ```powershell
 $env:TRIPMATE_DATA_GO_SERVICE_KEY="..."
@@ -37,9 +41,18 @@ $env:TRIPMATE_DATA_GO_SERVICE_KEY="..."
 ## 빠른 사용
 
 ```python
-from mcst import McstClient
+from mcst import DatasetKind, McstClient, get_api_catalog
 
-client = McstClient.from_env()
+client = McstClient(
+    service_keys={
+        "cafe_bookstores": "...",
+        "leisure_activity_facilities": "...",
+    }
+)
+
+# 사람 읽기 쉬운 제목과 endpoint를 포함한 카탈로그
+for item in get_api_catalog(kind=DatasetKind.KCISA_OPEN_API):
+    print(item["label"], item["endpoint_url"])
 
 # 문화공공데이터광장/KCISA OpenAPI
 page = client.culture.leisure_activity_facilities(num_of_rows=5)
@@ -54,6 +67,54 @@ print(classes.total_count, classes.items[0])
 rows = client.file_data.read_csv("leisure_classes_csv")
 print(rows[0])
 ```
+
+## 디버그 fixture 저장
+
+별도 Web UI나 로컬 디버그 도구는 라이브러리에 Streamlit을 직접 의존시키지 않고
+`debug_request()` 결과를 fixture로 저장하는 방식으로 연결합니다. 저장된 fixture는
+외부 API를 다시 호출하지 않고 raw response를 replay해 회귀 테스트에 사용합니다.
+
+```python
+from mcst import CultureOpenApiClient, save_fixture
+
+client = CultureOpenApiClient.from_env()
+debug_run = client.debug_request(
+    "leisure_activity_facilities",
+    keyword="공원",
+    num_of_rows=5,
+)
+
+path = save_fixture(
+    debug_run,
+    base_dir="tests/fixtures",
+    case_name="leisure_activity_park_normal",
+    description="전국 문화 여가 활동 시설 공원 검색 정상 케이스",
+    overwrite=False,
+)
+print(path)
+```
+
+fixture에는 `input`, `request`, `response`, `parsed`, `processed`, `assertion`, `meta`가
+저장됩니다. `serviceKey`, `Authorization`, `api_key`, token 계열 값은 저장 전에
+`<REDACTED>`로 마스킹됩니다.
+
+저장된 fixture는 기본 테스트에서 자동으로 읽습니다.
+
+```bash
+python -m pytest tests/test_generated_fixtures.py
+```
+
+로컬에서 기본 Streamlit 디버그 UI를 실행하려면 다음 명령을 사용합니다.
+
+```bash
+python -m pip install -r debug-ui/requirements.txt
+python -m streamlit run debug-ui/app.py
+```
+
+Debug Trace 탭은 선택한 데이터셋의 카탈로그 항목을 함께 보여줍니다. 예를 들어
+`cafe_bookstores`는 `한국문화정보원_카페가 있는 서점데이터`로 표시됩니다.
+Service key 입력칸은 선택한 API마다 별도로 유지되며, 실행 시 현재 선택한
+API의 키만 요청에 사용합니다.
 
 ## 주요 카탈로그
 

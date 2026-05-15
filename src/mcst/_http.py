@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,8 +15,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from ._convert import to_int_or_none, without_none
+from .debug import redact_sensitive
 from .exceptions import (
     McstAuthError,
+    McstNetworkError,
     McstNoDataError,
     McstParseError,
     McstRateLimitError,
@@ -46,6 +49,9 @@ class SessionLike(Protocol):
 TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (compatible; mcst/0.1; +https://github.com/digitie/python-mcst-api)"
+)
+SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)(serviceKey|service_key|api_key|apikey|access_token|refresh_token)=([^&\s)]+)"
 )
 
 
@@ -96,20 +102,69 @@ class HttpClient:
         self.session = session or build_session(retries)
         self.timeout = timeout
 
-    def get_response(self, url: str, params: Mapping[str, Any] | None = None) -> ResponseLike:
-        response = self.session.get(url, params=without_none(params or {}), timeout=self.timeout)
-        _raise_for_status(response, endpoint=url, service_key=self.service_key)
+    def get_response(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        service_key: str | None = None,
+    ) -> ResponseLike:
+        active_service_key = service_key or self.service_key
+        try:
+            response = self.session.get(
+                url,
+                params=without_none(params or {}),
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            raise _network_error(url, exc, active_service_key) from exc
+        _raise_for_status(response, endpoint=url, service_key=active_service_key)
         return response
+
+    def get_debug_response(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        service_key: str | None = None,
+    ) -> tuple[ResponseLike, dict[str, Any], dict[str, Any]]:
+        """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
+
+        query = without_none(params or {})
+        active_service_key = service_key or self.service_key
+        request_data = {
+            "method": "GET",
+            "url": url,
+            "query": redact_sensitive(query),
+        }
+        try:
+            response = self.session.get(url, params=query, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise _network_error(url, exc, active_service_key) from exc
+        response_data: dict[str, Any] = {
+            "status_code": response.status_code,
+            "headers": dict(response.headers),
+            "body": None,
+        }
+        _raise_for_status(response, endpoint=url, service_key=active_service_key)
+        return response, request_data, response_data
 
     def get_bytes(self, url: str, params: Mapping[str, Any] | None = None) -> bytes:
         return self.get_response(url, params).content
 
-    def get_json(self, url: str, params: Mapping[str, Any] | None = None) -> Any:
-        response = self.get_response(url, params)
+    def get_json(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        service_key: str | None = None,
+    ) -> Any:
+        active_service_key = service_key or self.service_key
+        response = self.get_response(url, params, service_key=active_service_key)
         try:
             return response.json()
         except ValueError as exc:
-            text = _redact(response.text[:300], self.service_key)
+            text = _redact(response.text[:300], active_service_key)
             raise McstParseError(
                 f"response was not valid JSON: {text}",
                 endpoint=url,
@@ -128,8 +183,10 @@ class KcisaHttp(HttpClient):
         num_of_rows: int,
         keyword: str | None = None,
         params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
     ) -> NormalizedPayload:
-        if not self.service_key:
+        active_service_key = service_key or self.service_key
+        if not active_service_key:
             raise McstAuthError(
                 "service_key is required. Pass service_key=... or set "
                 "TRIPMATE_DATA_GO_SERVICE_KEY.",
@@ -137,18 +194,57 @@ class KcisaHttp(HttpClient):
                 failure_kind="auth",
             )
         query: dict[str, Any] = {
-            "serviceKey": self.service_key,
+            "serviceKey": active_service_key,
             "numOfRows": num_of_rows,
             "pageNo": page_no,
             "keyword": keyword,
         }
         if params:
             query.update(params)
-        response = self.get_response(endpoint_url, query)
+        response = self.get_response(endpoint_url, query, service_key=active_service_key)
         payload = _decode_payload(response)
         normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
-        _raise_for_payload_error(normalized.raw, endpoint_url, service_key=self.service_key)
+        _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
         return normalized
+
+    def get_debug_page(
+        self,
+        endpoint_url: str,
+        *,
+        page_no: int,
+        num_of_rows: int,
+        keyword: str | None = None,
+        params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
+    ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
+        """KCISA 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
+
+        active_service_key = service_key or self.service_key
+        if not active_service_key:
+            raise McstAuthError(
+                "service_key is required. Pass service_key=... or set "
+                "TRIPMATE_DATA_GO_SERVICE_KEY.",
+                endpoint=endpoint_url,
+                failure_kind="auth",
+            )
+        query: dict[str, Any] = {
+            "serviceKey": active_service_key,
+            "numOfRows": num_of_rows,
+            "pageNo": page_no,
+            "keyword": keyword,
+        }
+        if params:
+            query.update(params)
+        response, request_data, response_data = self.get_debug_response(
+            endpoint_url,
+            query,
+            service_key=active_service_key,
+        )
+        payload = _decode_payload(response)
+        response_data["body"] = redact_sensitive(payload)
+        normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
+        _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
+        return normalized, request_data, response_data
 
 
 class OdcloudHttp(HttpClient):
@@ -164,8 +260,10 @@ class OdcloudHttp(HttpClient):
         page_no: int,
         per_page: int,
         params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
     ) -> NormalizedPayload:
-        if not self.service_key:
+        active_service_key = service_key or self.service_key
+        if not active_service_key:
             raise McstAuthError(
                 "service_key is required. Pass service_key=... or set "
                 "TRIPMATE_DATA_GO_SERVICE_KEY.",
@@ -176,12 +274,12 @@ class OdcloudHttp(HttpClient):
         query: dict[str, Any] = {
             "page": page_no,
             "perPage": per_page,
-            "serviceKey": self.service_key,
+            "serviceKey": active_service_key,
         }
         if params:
             query.update(params)
-        payload = self.get_json(url, query)
-        _raise_for_payload_error(payload, url, service_key=self.service_key)
+        payload = self.get_json(url, query, service_key=active_service_key)
+        _raise_for_payload_error(payload, url, service_key=active_service_key)
         if not isinstance(payload, Mapping):
             raise McstParseError("ODCloud response root was not an object", endpoint=url)
         rows = payload.get("data") or payload.get("items") or []
@@ -193,6 +291,63 @@ class OdcloudHttp(HttpClient):
             total_count=to_int_or_none(payload.get("totalCount")),
             raw=payload,
         )
+
+    def get_debug_page(
+        self,
+        public_data_pk: str,
+        public_data_detail_pk: str,
+        *,
+        page_no: int,
+        per_page: int,
+        params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
+    ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
+        """ODCloud 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
+
+        active_service_key = service_key or self.service_key
+        if not active_service_key:
+            raise McstAuthError(
+                "service_key is required. Pass service_key=... or set "
+                "TRIPMATE_DATA_GO_SERVICE_KEY.",
+                endpoint=public_data_pk,
+                failure_kind="auth",
+            )
+        url = f"{self.base_url}/{public_data_pk}/v1/{public_data_detail_pk}"
+        query: dict[str, Any] = {
+            "page": page_no,
+            "perPage": per_page,
+            "serviceKey": active_service_key,
+        }
+        if params:
+            query.update(params)
+        response, request_data, response_data = self.get_debug_response(
+            url,
+            query,
+            service_key=active_service_key,
+        )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            text = _redact(response.text[:300], active_service_key)
+            raise McstParseError(
+                f"response was not valid JSON: {text}",
+                endpoint=url,
+                failure_kind="parse",
+            ) from exc
+        response_data["body"] = redact_sensitive(payload)
+        _raise_for_payload_error(payload, url, service_key=active_service_key)
+        if not isinstance(payload, Mapping):
+            raise McstParseError("ODCloud response root was not an object", endpoint=url)
+        rows = payload.get("data") or payload.get("items") or []
+        items = _rows_to_tuple(rows, endpoint=url)
+        normalized = NormalizedPayload(
+            items=items,
+            page_no=to_int_or_none(payload.get("page")) or page_no,
+            num_of_rows=to_int_or_none(payload.get("perPage")) or per_page,
+            total_count=to_int_or_none(payload.get("totalCount")),
+            raw=payload,
+        )
+        return normalized, request_data, response_data
 
 
 def _raise_for_status(
@@ -389,6 +544,32 @@ def _nested(data: Mapping[str, Any], *keys: str) -> Any:
 
 
 def _redact(text: str, secret: str | None) -> str:
+    redacted = SENSITIVE_QUERY_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
     if not secret:
-        return text
-    return text.replace(secret, "[redacted]")
+        return redacted
+    cleaned = secret.strip().strip('"').strip("'")
+    for candidate in {secret, cleaned}:
+        if candidate:
+            redacted = redacted.replace(candidate, "[redacted]")
+    return redacted
+
+
+def _network_error(
+    url: str,
+    exc: requests.RequestException,
+    service_key: str | None,
+) -> McstNetworkError:
+    message = _redact(str(exc), service_key)
+    lowered = message.casefold()
+    dns_tokens = ("failed to resolve", "nameresolutionerror", "getaddrinfo")
+    if any(token in lowered for token in dns_tokens):
+        prefix = "DNS lookup failed for upstream host"
+    elif "timed out" in lowered or "timeout" in lowered:
+        prefix = "network request timed out"
+    else:
+        prefix = "network request failed"
+    return McstNetworkError(
+        f"{prefix}: {message}",
+        endpoint=url,
+        failure_kind="network",
+    )

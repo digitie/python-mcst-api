@@ -34,6 +34,10 @@ class McstRequestError(McstError):
     """잘못된 요청 또는 클라이언트 쪽 HTTP 오류입니다."""
 
 
+class McstNetworkError(McstError):
+    """DNS, 연결 실패, 타임아웃 같은 네트워크 계층 오류입니다."""
+
+
 class McstNoDataError(McstError):
     """상위 서비스가 데이터 없음 응답을 반환했습니다."""
 

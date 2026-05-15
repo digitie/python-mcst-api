@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcst import ALL_DATASETS, CULTURE_OPEN_APIS, FILE_DATASETS
+from mcst import ALL_DATASETS, CULTURE_OPEN_APIS, FILE_DATASETS, get_api_catalog
 from mcst.catalog import DatasetKind
 
 
@@ -34,3 +34,12 @@ def test_file_api_entries_have_download_or_link_urls():
     for entry in FILE_DATASETS.values():
         assert entry.file_url
         assert entry.detail_url.startswith("https://")
+
+
+def test_get_api_catalog_returns_human_readable_labels():
+    catalog = get_api_catalog(kind=DatasetKind.KCISA_OPEN_API)
+    cafe = next(item for item in catalog if item["slug"] == "cafe_bookstores")
+
+    assert cafe["title"] == "한국문화정보원_카페가 있는 서점데이터"
+    assert cafe["label"] == "한국문화정보원_카페가 있는 서점데이터 (cafe_bookstores)"
+    assert cafe["endpoint_url"] == "https://api.kcisa.kr/openapi/API_CIA_090/request"
