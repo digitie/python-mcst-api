@@ -13,3 +13,6 @@ python -m streamlit run debug-ui/app.py
 개발 checkout에서 바로 실행할 수 있도록 `app.py`는 저장소의 `src/` 경로를 먼저
 import 경로에 추가합니다. 패키지를 wheel 또는 editable install한 환경에서도 같은
 앱을 사용할 수 있습니다.
+
+데이터셋을 선택하면 해당 카탈로그 상세 페이지로 이동하는 서비스키
+발급/활용신청 링크가 함께 표시됩니다.

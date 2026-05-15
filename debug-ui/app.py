@@ -42,8 +42,9 @@ def main() -> None:
 def _render_culture(*, timeout: float) -> None:
     datasets = _catalog_options(DatasetKind.KCISA_OPEN_API)
     with st.sidebar:
-        dataset_slug = _select_dataset(datasets)
-        service_key = _service_key_input(dataset_slug)
+        dataset = _select_dataset(datasets)
+        dataset_slug = str(dataset["slug"])
+        service_key = _service_key_input(dataset)
         keyword = st.text_input("Keyword")
         page_no = st.number_input("Page", min_value=1, value=1, step=1)
         num_of_rows = st.number_input("Rows", min_value=1, max_value=1000, value=10, step=1)
@@ -68,8 +69,9 @@ def _render_culture(*, timeout: float) -> None:
 def _render_data_go(*, timeout: float) -> None:
     datasets = _catalog_options(DatasetKind.DATA_GO_FILE_API)
     with st.sidebar:
-        dataset_slug = _select_dataset(datasets)
-        service_key = _service_key_input(dataset_slug)
+        dataset = _select_dataset(datasets)
+        dataset_slug = str(dataset["slug"])
+        service_key = _service_key_input(dataset)
         page_no = st.number_input("Page", min_value=1, value=1, step=1)
         per_page = st.number_input("Rows", min_value=1, max_value=1000, value=10, step=1)
         params = _json_params()
@@ -113,15 +115,19 @@ def _catalog_options(kind: DatasetKind) -> tuple[dict[str, Any], ...]:
     return get_api_catalog(kind=kind)
 
 
-def _select_dataset(datasets: tuple[dict[str, Any], ...]) -> str:
-    labels = {str(item["label"]): str(item["slug"]) for item in datasets}
+def _select_dataset(datasets: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    labels = {str(item["label"]): item for item in datasets}
     selected_label = st.selectbox("Dataset", list(labels))
-    dataset_slug = labels[selected_label]
-    st.caption(f"slug: `{dataset_slug}`")
-    return dataset_slug
+    dataset = labels[selected_label]
+    st.caption(f"slug: `{dataset['slug']}`")
+    return dataset
 
 
-def _service_key_input(dataset_slug: str) -> str | None:
+def _service_key_input(dataset: dict[str, Any]) -> str | None:
+    dataset_slug = str(dataset["slug"])
+    service_key_url = str(dataset.get("detail_url") or "")
+    if service_key_url:
+        st.link_button("서비스키 발급/활용신청", service_key_url, use_container_width=True)
     raw = st.text_input(
         "Service key for selected API",
         type="password",
