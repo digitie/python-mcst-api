@@ -27,8 +27,16 @@
 
 ## 구현 방향
 
-- 불필요한 얇은 wrapper나 단순 전달용 함수/클래스는 만들지 않습니다. 기존
-  코드의 책임 경계가 충분하면 그 경계를 그대로 사용합니다.
+- 외부 API 관련 작업은 다른 구현보다 먼저 wrapper/adapter/gateway 지양 원칙을
+  확인하고 문서/코드에 반영한 뒤 진행합니다.
+- downstream이 직접 사용할 안정된 public client, typed model, enum, helper를
+  제공합니다.
+- 불필요한 얇은 wrapper나 단순 전달용 함수/클래스, 장기 호환 alias, 임시
+  facade는 만들지 않습니다. 기존 코드의 책임 경계가 충분하면 그 경계를 그대로
+  사용합니다.
+- TripMate나 `python-krtour-map`에서 필요한 endpoint, pagination, cursor,
+  exception, raw payload 계약이 부족하면 이 저장소의 public API를 먼저
+  안정화합니다.
 - 최소 수정 원칙은 기본값이지만, 다른 라이브러리에 이미 검증된 구현이 있고
   라이선스, 의존성, 저장소 범위에 맞는다면 최소 수정과 충돌하더라도 그 구현을
   직접 적용하는 방향을 우선합니다.
