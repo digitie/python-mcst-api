@@ -5,7 +5,7 @@ import socket
 
 import pytest
 
-from mcst import CultureOpenApiClient, DataGoFileApiClient
+from mcst import CultureOpenApiClient, DataGoFileApiClient, McstClient
 from mcst.exceptions import McstAuthError, McstError
 
 pytestmark = pytest.mark.live
@@ -49,5 +49,21 @@ def test_live_kcisa_activity_endpoint_with_tripmate_key():
         pytest.skip(f"KCISA live call is unavailable in this environment: {exc}")
 
     assert page.page_no >= 1
+    assert page.items
+    assert key not in repr(page.raw)
+
+
+@pytest.mark.asyncio
+async def test_live_async_odcloud_leisure_classes_with_tripmate_key():
+    key = _service_key()
+
+    async with McstClient.aio(service_key=key, timeout=20) as client:
+        try:
+            page = await client.data_go.leisure_classes(per_page=1)
+        except McstAuthError as exc:
+            pytest.skip(f"service key is present but ODCloud rejected it: {exc.result_code}")
+
+    assert page.page_no == 1
+    assert page.num_of_rows == 1
     assert page.items
     assert key not in repr(page.raw)

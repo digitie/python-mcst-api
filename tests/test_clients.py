@@ -5,7 +5,14 @@ from typing import Any
 
 import pytest
 
-from mcst import CultureOpenApiClient, DataGoFileApiClient, FileDataClient
+from mcst import (
+    AsyncCultureOpenApiClient,
+    AsyncDataGoFileApiClient,
+    CultureOpenApiClient,
+    DataGoFileApiClient,
+    FileDataClient,
+    McstClient,
+)
 from mcst.exceptions import McstAuthError, McstRequestError
 
 
@@ -39,6 +46,26 @@ class FakeSession:
     ) -> FakeResponse:
         self.calls.append((url, dict(params or {})))
         return self.response
+
+
+class AsyncFakeSession:
+    def __init__(self, response: FakeResponse) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.closed = False
+
+    async def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float,
+    ) -> FakeResponse:
+        self.calls.append((url, dict(params or {})))
+        return self.response
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 def test_culture_client_parses_xml_page_and_hides_service_key_from_model():
@@ -117,6 +144,55 @@ def test_data_go_client_prefers_dataset_service_key():
     client.leisure_classes(per_page=1)
 
     assert session.calls[0][1]["serviceKey"] == "class-key"
+
+
+@pytest.mark.asyncio
+async def test_async_culture_client_parses_xml_page():
+    xml = """
+    <response>
+      <header><resultCode>00</resultCode><resultMsg>OK</resultMsg></header>
+      <body>
+        <pageNo>1</pageNo><numOfRows>1</numOfRows><totalCount>1</totalCount>
+        <items>
+          <item><title>비동기 시설</title><address>서울시 종로구</address></item>
+        </items>
+      </body>
+    </response>
+    """
+    session = AsyncFakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
+
+    async with AsyncCultureOpenApiClient("secret-key", session=session) as client:
+        page = await client.leisure_activity_facilities(num_of_rows=1)
+
+    assert page.items[0].name == "비동기 시설"
+    assert session.calls[0][1]["serviceKey"] == "secret-key"
+    assert client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_async_data_go_client_parses_odcloud_shape():
+    response = FakeResponse(
+        '{"page":1,"perPage":1,"totalCount":1,"data":[{"클래스 타이틀":"비동기 클래스"}]}',
+        headers={"Content-Type": "application/json"},
+    )
+    session = AsyncFakeSession(response)
+
+    async with AsyncDataGoFileApiClient("secret-key", session=session) as client:
+        page = await client.leisure_classes(per_page=1)
+
+    assert page.items == ({"클래스 타이틀": "비동기 클래스"},)
+    assert session.calls[0][1]["serviceKey"] == "secret-key"
+
+
+@pytest.mark.asyncio
+async def test_top_level_async_client_facade():
+    client = McstClient.aio(service_key="secret-key")
+
+    async with client as active:
+        assert active.culture.service_key == "secret-key"
+        assert active.data_go.service_key == "secret-key"
+
+    assert client.closed is True
 
 
 def test_file_client_reads_csv_with_encoding_fallback():

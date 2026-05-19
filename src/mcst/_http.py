@@ -1,18 +1,18 @@
-"""KCISA, data.go.kr, ODCloud 계열 API용 HTTP 도우미입니다."""
+"""KCISA, data.go.kr, ODCloud 계열 API용 httpx transport입니다."""
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import httpx
 
 from ._convert import to_int_or_none, without_none
 from .debug import redact_sensitive
@@ -46,6 +46,16 @@ class SessionLike(Protocol):
     ) -> ResponseLike: ...
 
 
+class AsyncSessionLike(Protocol):
+    async def get(
+        self,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        timeout: float,
+    ) -> ResponseLike: ...
+
+
 TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (compatible; mcst/0.1; +https://github.com/digitie/python-mcst-api)"
@@ -64,31 +74,67 @@ class NormalizedPayload:
     raw: Any
 
 
-def build_session(retries: int = 3) -> SessionLike:
-    """보수적인 GET 재시도를 적용한 requests 세션을 만듭니다."""
+@dataclass(slots=True)
+class TokenBucket:
+    """Async token bucket rate limiter."""
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
-    if retries <= 0:
-        return cast(SessionLike, session)
+    max_rps: float = 5.0
+    capacity: float | None = None
+    _tokens: float = field(init=False)
+    _updated_at: float = field(init=False)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
 
-    retry = Retry(
-        total=retries,
-        connect=retries,
-        read=retries,
-        status=retries,
-        backoff_factor=0.3,
-        status_forcelist=tuple(sorted(TRANSIENT_STATUSES)),
-        allowed_methods=frozenset({"GET"}),
+    def __post_init__(self) -> None:
+        if self.max_rps <= 0:
+            raise ValueError("max_rps must be greater than 0")
+        self.capacity = self.capacity or self.max_rps
+        self._tokens = self.capacity
+        self._updated_at = time.monotonic()
+
+    async def acquire(self) -> None:
+        while True:
+            async with self._lock:
+                self._refill()
+                if self._tokens >= 1:
+                    self._tokens -= 1
+                    return
+                wait_for = (1 - self._tokens) / self.max_rps
+            await asyncio.sleep(wait_for)
+
+    def _refill(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._updated_at
+        self._updated_at = now
+        assert self.capacity is not None
+        self._tokens = min(self.capacity, self._tokens + elapsed * self.max_rps)
+
+
+def build_session() -> SessionLike:
+    """기본 헤더를 적용한 httpx 동기 클라이언트를 만듭니다."""
+
+    return cast(
+        SessionLike,
+        httpx.Client(
+            headers={"User-Agent": DEFAULT_USER_AGENT},
+            follow_redirects=True,
+        ),
     )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return cast(SessionLike, session)
+
+
+def build_async_session() -> AsyncSessionLike:
+    """기본 헤더를 적용한 httpx 비동기 클라이언트를 만듭니다."""
+
+    return cast(
+        AsyncSessionLike,
+        httpx.AsyncClient(
+            headers={"User-Agent": DEFAULT_USER_AGENT},
+            follow_redirects=True,
+        ),
+    )
 
 
 class HttpClient:
-    """공통 오류 처리를 포함한 GET 호출 래퍼입니다."""
+    """공통 오류 처리와 재시도를 포함한 동기 GET 호출 래퍼입니다."""
 
     def __init__(
         self,
@@ -99,8 +145,15 @@ class HttpClient:
         retries: int = 3,
     ) -> None:
         self.service_key = service_key
-        self.session = session or build_session(retries)
+        self.session = session or build_session()
         self.timeout = timeout
+        self.retries = retries
+        self._owns_session = session is None
+
+    def close(self) -> None:
+        close = getattr(self.session, "close", None)
+        if self._owns_session and callable(close):
+            close()
 
     def get_response(
         self,
@@ -110,16 +163,21 @@ class HttpClient:
         service_key: str | None = None,
     ) -> ResponseLike:
         active_service_key = service_key or self.service_key
-        try:
-            response = self.session.get(
-                url,
-                params=without_none(params or {}),
-                timeout=self.timeout,
-            )
-        except requests.RequestException as exc:
-            raise _network_error(url, exc, active_service_key) from exc
-        _raise_for_status(response, endpoint=url, service_key=active_service_key)
-        return response
+        query = without_none(params or {})
+        for attempt in range(self.retries + 1):
+            try:
+                response = self.session.get(url, params=query, timeout=self.timeout)
+            except httpx.HTTPError as exc:
+                if attempt >= self.retries:
+                    raise _network_error(url, exc, active_service_key) from exc
+                _sleep_before_retry(attempt)
+                continue
+            if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
+                _sleep_before_retry(attempt)
+                continue
+            _raise_for_status(response, endpoint=url, service_key=active_service_key)
+            return response
+        raise AssertionError("unreachable")
 
     def get_debug_response(
         self,
@@ -131,23 +189,8 @@ class HttpClient:
         """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
 
         query = without_none(params or {})
-        active_service_key = service_key or self.service_key
-        request_data = {
-            "method": "GET",
-            "url": url,
-            "query": redact_sensitive(query),
-        }
-        try:
-            response = self.session.get(url, params=query, timeout=self.timeout)
-        except requests.RequestException as exc:
-            raise _network_error(url, exc, active_service_key) from exc
-        response_data: dict[str, Any] = {
-            "status_code": response.status_code,
-            "headers": dict(response.headers),
-            "body": None,
-        }
-        _raise_for_status(response, endpoint=url, service_key=active_service_key)
-        return response, request_data, response_data
+        response = self.get_response(url, query, service_key=service_key)
+        return response, _request_data(url, query), _response_data(response)
 
     def get_bytes(self, url: str, params: Mapping[str, Any] | None = None) -> bytes:
         return self.get_response(url, params).content
@@ -172,8 +215,93 @@ class HttpClient:
             ) from exc
 
 
+class AsyncHttpClient:
+    """공통 오류 처리, 재시도, rate limit을 포함한 비동기 GET 호출 래퍼입니다."""
+
+    def __init__(
+        self,
+        *,
+        service_key: str | None = None,
+        session: AsyncSessionLike | None = None,
+        timeout: float = 10.0,
+        retries: int = 3,
+        max_rps: float = 5.0,
+    ) -> None:
+        self.service_key = service_key
+        self.session = session or build_async_session()
+        self.timeout = timeout
+        self.retries = retries
+        self._bucket = TokenBucket(max_rps=max_rps)
+        self._owns_session = session is None
+
+    async def aclose(self) -> None:
+        close = getattr(self.session, "aclose", None)
+        if self._owns_session and callable(close):
+            await close()
+
+    async def get_response(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        service_key: str | None = None,
+    ) -> ResponseLike:
+        active_service_key = service_key or self.service_key
+        query = without_none(params or {})
+        for attempt in range(self.retries + 1):
+            await self._bucket.acquire()
+            try:
+                response = await self.session.get(url, params=query, timeout=self.timeout)
+            except httpx.HTTPError as exc:
+                if attempt >= self.retries:
+                    raise _network_error(url, exc, active_service_key) from exc
+                await _async_sleep_before_retry(attempt)
+                continue
+            if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
+                await _async_sleep_before_retry(attempt)
+                continue
+            _raise_for_status(response, endpoint=url, service_key=active_service_key)
+            return response
+        raise AssertionError("unreachable")
+
+    async def get_debug_response(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        service_key: str | None = None,
+    ) -> tuple[ResponseLike, dict[str, Any], dict[str, Any]]:
+        """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
+
+        query = without_none(params or {})
+        response = await self.get_response(url, query, service_key=service_key)
+        return response, _request_data(url, query), _response_data(response)
+
+    async def get_bytes(self, url: str, params: Mapping[str, Any] | None = None) -> bytes:
+        return (await self.get_response(url, params)).content
+
+    async def get_json(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        service_key: str | None = None,
+    ) -> Any:
+        active_service_key = service_key or self.service_key
+        response = await self.get_response(url, params, service_key=active_service_key)
+        try:
+            return response.json()
+        except ValueError as exc:
+            text = _redact(response.text[:300], active_service_key)
+            raise McstParseError(
+                f"response was not valid JSON: {text}",
+                endpoint=url,
+                failure_kind="parse",
+            ) from exc
+
+
 class KcisaHttp(HttpClient):
-    """culture.go.kr/KCISA OpenAPI 엔드포인트용 HTTP 클라이언트입니다."""
+    """culture.go.kr/KCISA OpenAPI 엔드포인트용 동기 HTTP 클라이언트입니다."""
 
     def get_page(
         self,
@@ -185,27 +313,16 @@ class KcisaHttp(HttpClient):
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
     ) -> NormalizedPayload:
-        active_service_key = service_key or self.service_key
-        if not active_service_key:
-            raise McstAuthError(
-                "service_key is required. Pass service_key=... or set "
-                "TRIPMATE_DATA_GO_SERVICE_KEY.",
-                endpoint=endpoint_url,
-                failure_kind="auth",
-            )
-        query: dict[str, Any] = {
-            "serviceKey": active_service_key,
-            "numOfRows": num_of_rows,
-            "pageNo": page_no,
-            "keyword": keyword,
-        }
-        if params:
-            query.update(params)
+        active_service_key = _require_key(service_key or self.service_key, endpoint_url)
+        query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
         response = self.get_response(endpoint_url, query, service_key=active_service_key)
-        payload = _decode_payload(response)
-        normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
-        _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
-        return normalized
+        return _normalized_response(
+            response,
+            endpoint_url,
+            active_service_key,
+            page_no,
+            num_of_rows,
+        )
 
     def get_debug_page(
         self,
@@ -219,22 +336,8 @@ class KcisaHttp(HttpClient):
     ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
         """KCISA 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
 
-        active_service_key = service_key or self.service_key
-        if not active_service_key:
-            raise McstAuthError(
-                "service_key is required. Pass service_key=... or set "
-                "TRIPMATE_DATA_GO_SERVICE_KEY.",
-                endpoint=endpoint_url,
-                failure_kind="auth",
-            )
-        query: dict[str, Any] = {
-            "serviceKey": active_service_key,
-            "numOfRows": num_of_rows,
-            "pageNo": page_no,
-            "keyword": keyword,
-        }
-        if params:
-            query.update(params)
+        active_service_key = _require_key(service_key or self.service_key, endpoint_url)
+        query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
         response, request_data, response_data = self.get_debug_response(
             endpoint_url,
             query,
@@ -247,8 +350,58 @@ class KcisaHttp(HttpClient):
         return normalized, request_data, response_data
 
 
+class AsyncKcisaHttp(AsyncHttpClient):
+    """culture.go.kr/KCISA OpenAPI 엔드포인트용 비동기 HTTP 클라이언트입니다."""
+
+    async def get_page(
+        self,
+        endpoint_url: str,
+        *,
+        page_no: int,
+        num_of_rows: int,
+        keyword: str | None = None,
+        params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
+    ) -> NormalizedPayload:
+        active_service_key = _require_key(service_key or self.service_key, endpoint_url)
+        query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
+        response = await self.get_response(endpoint_url, query, service_key=active_service_key)
+        return _normalized_response(
+            response,
+            endpoint_url,
+            active_service_key,
+            page_no,
+            num_of_rows,
+        )
+
+    async def get_debug_page(
+        self,
+        endpoint_url: str,
+        *,
+        page_no: int,
+        num_of_rows: int,
+        keyword: str | None = None,
+        params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
+    ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
+        """KCISA 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
+
+        active_service_key = _require_key(service_key or self.service_key, endpoint_url)
+        query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
+        response, request_data, response_data = await self.get_debug_response(
+            endpoint_url,
+            query,
+            service_key=active_service_key,
+        )
+        payload = _decode_payload(response)
+        response_data["body"] = redact_sensitive(payload)
+        normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
+        _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
+        return normalized, request_data, response_data
+
+
 class OdcloudHttp(HttpClient):
-    """data.go.kr 자동변환 파일 API용 HTTP 클라이언트입니다."""
+    """data.go.kr 자동변환 파일 API용 동기 HTTP 클라이언트입니다."""
 
     base_url = "https://api.odcloud.kr/api"
 
@@ -262,35 +415,18 @@ class OdcloudHttp(HttpClient):
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
     ) -> NormalizedPayload:
-        active_service_key = service_key or self.service_key
-        if not active_service_key:
-            raise McstAuthError(
-                "service_key is required. Pass service_key=... or set "
-                "TRIPMATE_DATA_GO_SERVICE_KEY.",
-                endpoint=public_data_pk,
-                failure_kind="auth",
-            )
-        url = f"{self.base_url}/{public_data_pk}/v1/{public_data_detail_pk}"
-        query: dict[str, Any] = {
-            "page": page_no,
-            "perPage": per_page,
-            "serviceKey": active_service_key,
-        }
-        if params:
-            query.update(params)
-        payload = self.get_json(url, query, service_key=active_service_key)
-        _raise_for_payload_error(payload, url, service_key=active_service_key)
-        if not isinstance(payload, Mapping):
-            raise McstParseError("ODCloud response root was not an object", endpoint=url)
-        rows = payload.get("data") or payload.get("items") or []
-        items = _rows_to_tuple(rows, endpoint=url)
-        return NormalizedPayload(
-            items=items,
-            page_no=to_int_or_none(payload.get("page")) or page_no,
-            num_of_rows=to_int_or_none(payload.get("perPage")) or per_page,
-            total_count=to_int_or_none(payload.get("totalCount")),
-            raw=payload,
+        active_service_key = _require_key(service_key or self.service_key, public_data_pk)
+        url, query = _odcloud_url_query(
+            self.base_url,
+            public_data_pk,
+            public_data_detail_pk,
+            page_no,
+            per_page,
+            active_service_key,
+            params,
         )
+        payload = self.get_json(url, query, service_key=active_service_key)
+        return _normalized_odcloud_payload(payload, url, page_no, per_page, active_service_key)
 
     def get_debug_page(
         self,
@@ -304,50 +440,204 @@ class OdcloudHttp(HttpClient):
     ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
         """ODCloud 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
 
-        active_service_key = service_key or self.service_key
-        if not active_service_key:
-            raise McstAuthError(
-                "service_key is required. Pass service_key=... or set "
-                "TRIPMATE_DATA_GO_SERVICE_KEY.",
-                endpoint=public_data_pk,
-                failure_kind="auth",
-            )
-        url = f"{self.base_url}/{public_data_pk}/v1/{public_data_detail_pk}"
-        query: dict[str, Any] = {
-            "page": page_no,
-            "perPage": per_page,
-            "serviceKey": active_service_key,
-        }
-        if params:
-            query.update(params)
+        active_service_key = _require_key(service_key or self.service_key, public_data_pk)
+        url, query = _odcloud_url_query(
+            self.base_url,
+            public_data_pk,
+            public_data_detail_pk,
+            page_no,
+            per_page,
+            active_service_key,
+            params,
+        )
         response, request_data, response_data = self.get_debug_response(
             url,
             query,
             service_key=active_service_key,
         )
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            text = _redact(response.text[:300], active_service_key)
-            raise McstParseError(
-                f"response was not valid JSON: {text}",
-                endpoint=url,
-                failure_kind="parse",
-            ) from exc
+        payload = _json_payload(response, url, active_service_key)
         response_data["body"] = redact_sensitive(payload)
-        _raise_for_payload_error(payload, url, service_key=active_service_key)
-        if not isinstance(payload, Mapping):
-            raise McstParseError("ODCloud response root was not an object", endpoint=url)
-        rows = payload.get("data") or payload.get("items") or []
-        items = _rows_to_tuple(rows, endpoint=url)
-        normalized = NormalizedPayload(
-            items=items,
-            page_no=to_int_or_none(payload.get("page")) or page_no,
-            num_of_rows=to_int_or_none(payload.get("perPage")) or per_page,
-            total_count=to_int_or_none(payload.get("totalCount")),
-            raw=payload,
+        normalized = _normalized_odcloud_payload(
+            payload,
+            url,
+            page_no,
+            per_page,
+            active_service_key,
         )
         return normalized, request_data, response_data
+
+
+class AsyncOdcloudHttp(AsyncHttpClient):
+    """data.go.kr 자동변환 파일 API용 비동기 HTTP 클라이언트입니다."""
+
+    base_url = "https://api.odcloud.kr/api"
+
+    async def get_page(
+        self,
+        public_data_pk: str,
+        public_data_detail_pk: str,
+        *,
+        page_no: int,
+        per_page: int,
+        params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
+    ) -> NormalizedPayload:
+        active_service_key = _require_key(service_key or self.service_key, public_data_pk)
+        url, query = _odcloud_url_query(
+            self.base_url,
+            public_data_pk,
+            public_data_detail_pk,
+            page_no,
+            per_page,
+            active_service_key,
+            params,
+        )
+        payload = await self.get_json(url, query, service_key=active_service_key)
+        return _normalized_odcloud_payload(payload, url, page_no, per_page, active_service_key)
+
+    async def get_debug_page(
+        self,
+        public_data_pk: str,
+        public_data_detail_pk: str,
+        *,
+        page_no: int,
+        per_page: int,
+        params: Mapping[str, Any] | None = None,
+        service_key: str | None = None,
+    ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
+        """ODCloud 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
+
+        active_service_key = _require_key(service_key or self.service_key, public_data_pk)
+        url, query = _odcloud_url_query(
+            self.base_url,
+            public_data_pk,
+            public_data_detail_pk,
+            page_no,
+            per_page,
+            active_service_key,
+            params,
+        )
+        response, request_data, response_data = await self.get_debug_response(
+            url,
+            query,
+            service_key=active_service_key,
+        )
+        payload = _json_payload(response, url, active_service_key)
+        response_data["body"] = redact_sensitive(payload)
+        normalized = _normalized_odcloud_payload(
+            payload,
+            url,
+            page_no,
+            per_page,
+            active_service_key,
+        )
+        return normalized, request_data, response_data
+
+
+def _request_data(url: str, query: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "method": "GET",
+        "url": url,
+        "query": redact_sensitive(dict(query)),
+    }
+
+
+def _response_data(response: ResponseLike) -> dict[str, Any]:
+    return {
+        "status_code": response.status_code,
+        "headers": dict(response.headers),
+        "body": None,
+    }
+
+
+def _kcisa_query(
+    service_key: str,
+    page_no: int,
+    num_of_rows: int,
+    keyword: str | None,
+    params: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {
+        "serviceKey": service_key,
+        "numOfRows": num_of_rows,
+        "pageNo": page_no,
+        "keyword": keyword,
+    }
+    if params:
+        query.update(params)
+    return query
+
+
+def _odcloud_url_query(
+    base_url: str,
+    public_data_pk: str,
+    public_data_detail_pk: str,
+    page_no: int,
+    per_page: int,
+    service_key: str,
+    params: Mapping[str, Any] | None,
+) -> tuple[str, dict[str, Any]]:
+    url = f"{base_url}/{public_data_pk}/v1/{public_data_detail_pk}"
+    query: dict[str, Any] = {
+        "page": page_no,
+        "perPage": per_page,
+        "serviceKey": service_key,
+    }
+    if params:
+        query.update(params)
+    return url, query
+
+
+def _normalized_response(
+    response: ResponseLike,
+    endpoint_url: str,
+    service_key: str,
+    page_no: int,
+    num_of_rows: int,
+) -> NormalizedPayload:
+    payload = _decode_payload(response)
+    normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
+    _raise_for_payload_error(normalized.raw, endpoint_url, service_key=service_key)
+    return normalized
+
+
+def _normalized_odcloud_payload(
+    payload: Any,
+    url: str,
+    page_no: int,
+    per_page: int,
+    service_key: str,
+) -> NormalizedPayload:
+    _raise_for_payload_error(payload, url, service_key=service_key)
+    if not isinstance(payload, Mapping):
+        raise McstParseError("ODCloud response root was not an object", endpoint=url)
+    rows = payload.get("data") or payload.get("items") or []
+    items = _rows_to_tuple(rows, endpoint=url)
+    return NormalizedPayload(
+        items=items,
+        page_no=to_int_or_none(payload.get("page")) or page_no,
+        num_of_rows=to_int_or_none(payload.get("perPage")) or per_page,
+        total_count=to_int_or_none(payload.get("totalCount")),
+        raw=payload,
+    )
+
+
+def _require_key(service_key: str | None, endpoint: str) -> str:
+    if service_key:
+        return service_key
+    raise McstAuthError(
+        "service_key is required. Pass service_key=... or set TRIPMATE_DATA_GO_SERVICE_KEY.",
+        endpoint=endpoint,
+        failure_kind="auth",
+    )
+
+
+def _sleep_before_retry(attempt: int) -> None:
+    time.sleep(min(0.3 * (2**attempt), 4.0))
+
+
+async def _async_sleep_before_retry(attempt: int) -> None:
+    await asyncio.sleep(min(0.3 * (2**attempt), 4.0))
 
 
 def _raise_for_status(
@@ -427,10 +717,7 @@ def _decode_payload(response: ResponseLike) -> Any:
     content_type = response.headers.get("Content-Type", "").casefold()
     text = response.text.strip()
     if "json" in content_type or text.startswith("{") or text.startswith("["):
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise McstParseError("response was not valid JSON", failure_kind="parse") from exc
+        return _json_payload(response, "", None)
     if text.startswith("<"):
         try:
             root = ElementTree.fromstring(text)
@@ -441,6 +728,18 @@ def _decode_payload(response: ResponseLike) -> Any:
         f"unsupported response body from {urlparse(str(response)).netloc}",
         failure_kind="parse",
     )
+
+
+def _json_payload(response: ResponseLike, endpoint: str, service_key: str | None) -> Any:
+    try:
+        return response.json()
+    except ValueError as exc:
+        text = _redact(response.text[:300], service_key)
+        raise McstParseError(
+            f"response was not valid JSON: {text}",
+            endpoint=endpoint,
+            failure_kind="parse",
+        ) from exc
 
 
 def _element_to_data(element: ElementTree.Element) -> Any:
@@ -554,11 +853,7 @@ def _redact(text: str, secret: str | None) -> str:
     return redacted
 
 
-def _network_error(
-    url: str,
-    exc: requests.RequestException,
-    service_key: str | None,
-) -> McstNetworkError:
+def _network_error(url: str, exc: httpx.HTTPError, service_key: str | None) -> McstNetworkError:
     message = _redact(str(exc), service_key)
     lowered = message.casefold()
     dns_tokens = ("failed to resolve", "nameresolutionerror", "getaddrinfo")

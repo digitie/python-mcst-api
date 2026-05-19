@@ -43,29 +43,45 @@ $env:TRIPMATE_DATA_GO_SERVICE_KEY="..."
 ```python
 from mcst import DatasetKind, McstClient, get_api_catalog
 
-client = McstClient(
+with McstClient(
     service_keys={
         "cafe_bookstores": "...",
         "leisure_activity_facilities": "...",
     }
-)
+) as client:
+    # 문화공공데이터광장/KCISA OpenAPI
+    page = client.culture.leisure_activity_facilities(num_of_rows=5)
+    for item in page.items:
+        print(item.name, item.address, item.latitude, item.longitude)
+
+    # 공공데이터포털 자동변환 API
+    classes = client.data_go.leisure_classes(per_page=5)
+    print(classes.total_count, classes.items[0])
+
+    # 파일 데이터 다운로드 및 CSV 읽기
+    rows = client.file_data.read_csv("leisure_classes_csv")
+    print(rows[0])
 
 # 사람 읽기 쉬운 제목과 endpoint를 포함한 카탈로그
 for item in get_api_catalog(kind=DatasetKind.KCISA_OPEN_API):
     print(item["label"], item["endpoint_url"])
+```
 
-# 문화공공데이터광장/KCISA OpenAPI
-page = client.culture.leisure_activity_facilities(num_of_rows=5)
-for item in page.items:
-    print(item.name, item.address, item.latitude, item.longitude)
+## 비동기 사용
 
-# 공공데이터포털 자동변환 API
-classes = client.data_go.leisure_classes(per_page=5)
-print(classes.total_count, classes.items[0])
+`python-krheritage-api`와 같은 형태로 `McstClient.aio()`를 사용합니다. 내부 transport는
+`httpx.AsyncClient`이며, async 호출에는 기본 token bucket rate limit이 적용됩니다.
 
-# 파일 데이터 다운로드 및 CSV 읽기
-rows = client.file_data.read_csv("leisure_classes_csv")
-print(rows[0])
+```python
+from mcst import McstClient
+
+async with McstClient.aio(service_keys={"cafe_bookstores": "..."}) as client:
+    page = await client.culture.cafe_bookstores(num_of_rows=10)
+    for item in page.items:
+        print(item.name, item.address)
+
+    classes = await client.data_go.leisure_classes(per_page=5)
+    print(classes.total_count)
 ```
 
 ## 디버그 fixture 저장

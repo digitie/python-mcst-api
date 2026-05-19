@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import requests
+import httpx
 
 from mcst import CultureOpenApiClient, DataGoFileApiClient
 
 
 class FailingSession:
     def get(self, url, *, params=None, timeout=10.0):  # noqa: ANN001
-        raise requests.ConnectionError(
+        raise httpx.ConnectError(
             "HTTPSConnectionPool(host='api.kcisa.kr', port=443): "
             "Max retries exceeded with url: "
             "/openapi/API_CIA_090/request?serviceKey=abc-123 "

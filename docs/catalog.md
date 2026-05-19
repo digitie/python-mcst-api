@@ -43,6 +43,15 @@ client = CultureOpenApiClient(
 page = client.cafe_bookstores(num_of_rows=10)
 ```
 
+비동기 호출은 `python-krheritage-api`와 같은 facade 형태를 사용합니다.
+
+```python
+from mcst import McstClient
+
+async with McstClient.aio(service_keys={"cafe_bookstores": "..."}) as client:
+    page = await client.culture.cafe_bookstores(num_of_rows=10)
+```
+
 ## 구현된 API
 
 | slug | 제공기관 | 원천 |
