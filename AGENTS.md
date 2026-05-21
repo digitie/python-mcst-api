@@ -90,9 +90,9 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 ## API 키 정책
 
 - API 키를 커밋하거나 로그, 실패 메시지, 문서, 테스트 출력에 노출하지 않습니다.
-- TripMate live 확인에는 가능한 경우 `TRIPMATE_DATA_GO_SERVICE_KEY`를 사용합니다.
-- 기존 클라이언트가 지원하는 범위에서 `DATA_GO_SERVICE_KEY`, `MCST_SERVICE_KEY`,
-  `KCISA_SERVICE_KEY`도 지원합니다.
+- TripMate live 확인에는 가능한 경우 `DATA_GO_KR_SERVICE_KEY`를 사용합니다.
+- 기존 클라이언트가 지원하는 범위에서 `DATA_GO_KR_SERVICE_KEY`,
+  `DATA_GO_KR_SERVICE_KEY`도 지원합니다.
 - 비밀값은 예외 메시지와 `repr` 출력에 들어가지 않게 합니다.
 
 ## 테스트 정책

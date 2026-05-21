@@ -14,9 +14,7 @@ from .exceptions import McstAuthError, McstRequestError
 from .models import Page, RawRecord
 
 DEFAULT_ENV_NAMES = (
-    "TRIPMATE_DATA_GO_SERVICE_KEY",
-    "DATA_GO_SERVICE_KEY",
-    "MCST_SERVICE_KEY",
+    "DATA_GO_KR_SERVICE_KEY",
 )
 
 

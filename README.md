@@ -29,14 +29,14 @@ KCISA OpenAPI와 공공데이터포털 자동변환 API는 서비스키가 필�
 전달할 수 있습니다.
 
 ```powershell
-$env:TRIPMATE_DATA_GO_SERVICE_KEY="..."
+$env:DATA_GO_KR_SERVICE_KEY="..."
 ```
 
 대체 환경 변수도 인식합니다.
 
-- `MCST_SERVICE_KEY`
-- `KCISA_SERVICE_KEY`
-- `DATA_GO_SERVICE_KEY`
+- `DATA_GO_KR_SERVICE_KEY`
+- `DATA_GO_KR_SERVICE_KEY`
+- `DATA_GO_KR_SERVICE_KEY`
 
 ## 빠른 사용
 

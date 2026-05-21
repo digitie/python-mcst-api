@@ -626,7 +626,7 @@ def _require_key(service_key: str | None, endpoint: str) -> str:
     if service_key:
         return service_key
     raise McstAuthError(
-        "service_key is required. Pass service_key=... or set TRIPMATE_DATA_GO_SERVICE_KEY.",
+        "service_key is required. Pass service_key=... or set DATA_GO_KR_SERVICE_KEY.",
         endpoint=endpoint,
         failure_kind="auth",
     )

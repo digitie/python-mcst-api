@@ -63,5 +63,5 @@ testpaths = ["tests"]
 addopts = "-ra"
 pythonpath = ["src"]
 markers = [
-  "live: tests that call real MCST/KCISA/data.go.kr services and require TRIPMATE_DATA_GO_SERVICE_KEY or another service key",
+  "live: tests that call real MCST/KCISA/data.go.kr services and require DATA_GO_KR_SERVICE_KEY or another service key",
 ]

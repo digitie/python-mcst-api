@@ -14,10 +14,7 @@ from .exceptions import McstAuthError, McstRequestError
 from .models import CultureRecord, Page
 
 DEFAULT_ENV_NAMES = (
-    "TRIPMATE_DATA_GO_SERVICE_KEY",
-    "MCST_SERVICE_KEY",
-    "KCISA_SERVICE_KEY",
-    "DATA_GO_SERVICE_KEY",
+    "DATA_GO_KR_SERVICE_KEY",
 )
 
 
@@ -83,13 +80,9 @@ class CultureOpenApiClient:
     @classmethod
     def from_env(
         cls,
-        name: str = "TRIPMATE_DATA_GO_SERVICE_KEY",
+        name: str = "DATA_GO_KR_SERVICE_KEY",
         *,
-        fallback_names: tuple[str, ...] = (
-            "MCST_SERVICE_KEY",
-            "KCISA_SERVICE_KEY",
-            "DATA_GO_SERVICE_KEY",
-        ),
+        fallback_names: tuple[str, ...] = (),
         **kwargs: Any,
     ) -> CultureOpenApiClient:
         service_key = _clean_service_key(os.getenv(name)) or _first_env(fallback_names)
