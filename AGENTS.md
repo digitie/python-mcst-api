@@ -145,3 +145,14 @@ python -m pytest -m live
 - 하나의 데이터셋 래퍼를 되돌려도 관계없는 카탈로그나 문서 작업이 함께
   사라지지 않도록 커밋을 작게 유지합니다.
 - 카탈로그 항목의 한국어 제공기관명과 공식 데이터셋명은 정확히 보존합니다.
+
+## 작업 후 의무사항 (maplibre-vworld-js 스타일)
+
+에이전트는 작업을 마칠 때 다음 사항을 준수하여 프로젝트 연속성을 유지합니다:
+
+1. `docs/journal.md`에 항목 추가 (날짜·요약·결정·다음 작업, 역시간순)
+2. `docs/tasks.md`의 현재 작업 상태 업데이트 (새 부채 발견 시 추가)
+3. 주요 아키텍처/설계 결정이 있었다면 `docs/decisions.md`에 ADR(Architecture Decision Record) 추가
+4. 사용자 가시 변경이면 `CHANGELOG.md` 갱신
+5. MCP 설정 파일들(`antigravity.json`, `claude.json`, `codex.json`, `.gemini/`, `.claude/`, `.codex/`)은 프로젝트 루트에 유지하며, 에이전트 간 일관된 환경을 보장합니다.
+
