@@ -1,15 +1,68 @@
-# 아키텍처 결정 기록 (Architecture Decision Records)
+# DECISIONS — Architecture Decision Records
 
-이 프로젝트의 주요 설계 결정을 기록합니다.
+본 문서는 `python-mcst-api` 프로젝트의 아키텍처 및 설계 결정을 시간순으로 누적합니다. 결정이 뒤집힐 때도 이전 기록은 지우지 않고 `superseded by ADR-XXX`로 명시합니다.
 
-## 목차
-- [ADR-1: maplibre-vworld-js 스타일의 문서화 및 MCP 환경 도입](#adr-1-maplibre-vworld-js-스타일의-문서화-및-mcp-환경-도입)
+## ADR 표준 형식
+
+```markdown
+## ADR-NNN: <결정 요약>
+
+- 상태: proposed | accepted | superseded by ADR-XXX
+- 날짜: YYYY-MM-DD
+- 결정자: <agent | human>
+
+### 컨텍스트
+<무엇이 문제였나. 어떤 제약·요구가 있었나.>
+
+### 결정
+<무엇을 정했는가. 한 문장으로.>
+
+### 근거
+- 
+
+### 결과(긍정)
+- 
+
+### 결과(부정)
+- 
+
+### 후속
+- (open) 추가 검증 필요한 사항
+```
 
 ---
 
-### ADR-1: maplibre-vworld-js 스타일의 문서화 및 MCP 환경 도입
-- **일자**: 2026-05-30
-- **상태**: Accepted
-- **컨텍스트**: 다른 프로젝트(`maplibre-vworld-js`)에서 입증된 안정적인 에이전트 작업 스타일(journal, tasks, decisions 문서화)과 MCP 설정(`claude.json`, `codex.json` 등)을 공통으로 도입하여 에이전트 간 맥락 단절을 줄이고 일관된 환경을 유지하고자 함.
-- **결정**: `docs/journal.md`, `docs/tasks.md`, `docs/decisions.md`를 신규 도입하고 `AGENTS.md`에 이 의무사항을 명시함. 기존 MCP 설정 파일들 역시 복사하여 프로젝트 루트에 둠.
-- **결과**: 향후 에이전트는 작업을 마치기 전에 위 세 개의 문서를 업데이트하는 것을 원칙으로 함.
+## ADR-1: maplibre-vworld-js 스타일의 문서화 및 MCP 환경 도입
+
+- 상태: accepted
+- 날짜: 2026-05-31
+- 결정자: AI agent & human
+
+### 컨텍스트
+
+여러 에이전트(Claude Code, GPT Codex, Google Antigravity 등)가 한 저장소에서 번갈아 가며 코딩을 진행할 때, 각 에이전트의 로컬 설정 및 브랜치 상태와 CodeGraph MCP 인덱스 캐시가 충돌하는 문제가 있었습니다.
+또한, 작업의 흐름(journal, tasks)이 투명하고 엄격하게 표준화되어 있지 않으면 에이전트 세션 전환 시 문맥 복원에 수십 분이 지체되어 작업 생산성에 악영향을 줍니다.
+
+### 결정
+
+`maplibre-vworld-js` 프로젝트에서 고도의 안정성을 입증한 '에이전트별 독립 고정 worktree 환경(MCP 설정)'과 'T-NNN 기반 작업/저널/ADR 기록 스타일'을 전면 채택하여 도입합니다.
+
+### 근거
+
+- **독립된 에이전트 작업 공간**: 각 에이전트에게 고유 worktree 경로(`mcst-claude`, `mcst-antigravity`, `mcst-codex`)를 연결하여, 다른 에이전트의 미완성 변경 사항이나 브랜치 스위칭으로 인해 인덱스 인프라(CodeGraph)가 오염되는 현상을 완벽히 격리합니다.
+- **문맥 복원 극대화**: `CLAUDE.md`, `SKILL.md` 신설을 통해, 새로 접속한 에이전트가 단 30초 내에 이 프로젝트의 성격과 빠른 개발 게이트 검증 명령을 파악하게 만듭니다.
+- **아키텍처 부채 통제**: 표준화된 ADR 포맷과 저널 형식을 의무화하여, 의사결정의 근거와 부작용을 명시함으로써 패키지 복잡도가 산으로 가는 것을 시스템적으로 통제합니다.
+
+### 결과(긍정)
+
+- 에이전트들 간의 병렬 작업 정합성 및 독립성 100% 확보.
+- 신규 세션 진입 시 에러 분석 및 온보딩 시간 최소화.
+- 공공 API 클라이언트 패키지로서의 책임 경계(DO NOT)를 명확히 함으로써 도메인 오염 방지.
+
+### 결과(부정)
+
+- 작업자가 작업 종료 전 저널과 테스크, ADR을 수동으로 일일이 갱신해야 하는 관리 공수가 다소 증가함 (다소의 관리 비용은 협업 안정성을 위해 충분히 수용함).
+
+### 후속
+
+- 각 에이전트 worktree(`mcst-antigravity` 등)가 최초 가동될 때 `codegraph init -i`가 문제없이 인덱싱을 인코딩 오류 없이 수행하는지 실제 구동 검증 수행 필요.

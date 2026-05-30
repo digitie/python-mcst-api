@@ -2,7 +2,7 @@
 enabled = true
 command = "npx"
 args = ["-y", "@colbymchenry/codegraph", "serve", "--mcp"]
-cwd = "F:\\dev\\vw-codex"
+cwd = "F:\\dev\\mcst-codex"
 
 [mcp_servers.playwright]
 command = "npx"
@@ -12,4 +12,3 @@ env = { PLAYWRIGHT_HEADLESS = "true" }
 [mcp_servers.sequential-thinking]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
-

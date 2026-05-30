@@ -25,8 +25,7 @@
         "serve",
         "--mcp"
       ],
-      "cwd": "F:\\dev\\vw-antigravity"
+      "cwd": "F:\\dev\\mcst-antigravity"
     }
   }
 }
-
