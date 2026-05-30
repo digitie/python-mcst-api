@@ -25,9 +25,9 @@ Pydantic v2 및 httpx를 기반으로 하며, downstream이 직접 사용할 수
 ## 에이전트 worktree + CodeGraph
 
 각 에이전트는 독립된 checkout 환경을 활용하여 브랜치 및 인덱스 충돌을 방지합니다.
-- ChatGPT Codex: `F:\dev\mcst-codex`
-- Claude Code: `F:\dev\mcst-claude`
-- Google Antigravity 2.0: `F:\dev\mcst-antigravity`
+- ChatGPT Codex: `F:\dev\python-mcst-api-codex`
+- Claude Code: `F:\dev\python-mcst-api-claude`
+- Google Antigravity 2.0: `F:\dev\python-mcst-api-antigravity`
 
 새 작업 시 해당 worktree에서 `git fetch` 후 `git switch -c agent/<topic> master`로 브랜치를 생성합니다.
 CodeGraph는 worktree마다 최초 1회 `codegraph init -i`를 실행하고, 이후에는 작업 시작마다 `codegraph sync`를 실행해 인덱스를 최신화합니다. `.codegraph/` 폴더는 gitignore 대상입니다.

@@ -25,7 +25,7 @@
         "serve",
         "--mcp"
       ],
-      "cwd": "F:\\dev\\mcst-codex"
+      "cwd": "F:\\dev\\python-mcst-api-codex"
     }
   }
 }

@@ -25,7 +25,7 @@
         "serve",
         "--mcp"
       ],
-      "cwd": "F:\\dev\\mcst-antigravity"
+      "cwd": "F:\\dev\\python-mcst-api-antigravity"
     }
   }
 }

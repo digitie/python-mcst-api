@@ -23,7 +23,7 @@
 현재 대기 중이거나 즉시 이어서 실행해야 하는 우선순위 1순위 작업 목록입니다.
 
 1. **프로젝트 MCP 환경 완전 구동**:
-   - `mcst-claude`, `mcst-antigravity`, `mcst-codex` 고정 worktree 생성 및 에이전트 연동 상태 확인.
+   - `python-mcst-api-claude`, `python-mcst-api-antigravity`, `python-mcst-api-codex` 고정 worktree 생성 및 에이전트 연동 상태 확인.
    - `codegraph init -i` 및 `codegraph sync`를 이용해 이 파이썬 패키지의 소스 코드에 대한 코드 그래프 인덱싱 수행.
 2. **카탈로그 신규 데이터셋 추가 및 테스트 보완**:
    - 문체부의 누락된 핵심 여가/숙박 데이터셋이 존재할 경우 `mcst.catalog`에 신규 추가 후 대응 모델 및 클라이언트 작성.
