@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-05-31 (T-002 — 워크트리 Prefix 변경 및 물리적 에이전트 독립 환경 구축 완료)
+
+**작업**: 각 에이전트의 작업 환경(worktree) prefix 규격을 기존 `mcst-*`에서 `python-mcst-api-*`로 전면 교체 및 고도화하였으며, 실제로 로컬 환경에 3개의 독립 worktree를 생성하고 `@colbymchenry/codegraph` 정적 코드 인덱스 초기화(`init -i`)까지 완벽하게 수행해 냄.
+
+**구현 상세**:
+- **설정 파일 경로 전면 치환**: 
+  - `antigravity.json`, `claude.json`, `codex.json`, `.gemini/mcp.json`, `.codex/config.toml` 내의 `cwd` 경로를 `"F:\\dev\\python-mcst-api-antigravity"` 등 새로운 prefix 규격으로 100% 교체 완료.
+  - `.claude/settings.local.json` 에도 새로운 prefix 경로에서의 PowerShell 명령어 실행에 대한 자동 승인(allow) 권한을 정밀하게 매핑 및 보정함.
+- **에이전트 가이드 문서 최신화**:
+  - `CLAUDE.md`, `SKILL.md`, `docs/resume.md` 에 기술된 `mcst-*` 고정 worktree 명세를 모두 새로운 `python-mcst-api-*` 형태로 일관성 있게 업데이트하여 문서 정합성을 맞춤.
+- **물리적 Git Worktree 생성**:
+  - `git worktree add -d F:\dev\python-mcst-api-claude master` 등 3개의 에이전트별 worktree를 detached HEAD 상태로 물리 생성함.
+- **각 워크트리별 CodeGraph 인덱싱 수행**:
+  - `npx -y @colbymchenry/codegraph init -i` 명령을 각 worktree 디렉토리 하위에서 구동하여 21개 소스 파일에 대한 코어 그래프 노드/엣지 인덱스(`.codegraph/`) 빌드를 완료함 (각각 437개 노드, 416개 엣지 생성 성공).
+- **PR 및 머지 완수**:
+  - `chore/change-worktree-prefix` 브랜치 상에서 설정 수정을 커밋한 뒤 `master` 브랜치로 fast-forward 병합 및 원격 저장소(`origin/master`) 푸시를 완수함.
+
+**검증**:
+- **로컬 4대 게이트 통과**: `pytest`, `ruff check`, `mypy` strict 타입 검사가 모두 Success 상태를 완벽히 통과함을 검증.
+- **물리적 워크트리 목록 점검**: `git worktree list`를 가동하여 3개의 worktree 매핑을 정상 수동 검증.
+
+**다음 작업**: 대기 중인 작업 없음. 추가 카탈로그 보완을 기획할 예정.
+
+---
+
 ## 2026-05-31 (T-001 — maplibre-vworld-js 고도화된 에이전트 협업 스타일 및 MCP 설정 적용)
 
 **작업**: Claude, GPT, Antigravity 에이전트의 개발 정합성과 세션 연속성 확보를 위해, `maplibre-vworld-js` 프로젝트에서 검증된 고도화된 협업 양식(저널, 테스크, ADR 표준화)과 에이전트별 독립 고정 worktree 환경(MCP 설정)을 이 프로젝트(`python-mcst-api`)에 완벽히 이식하였다.
@@ -26,13 +51,8 @@
   - `docs/decisions.md`: ADR-1을 컨텍스트, 결정, 근거, 결과+, 결과-, 후속의 표준 의사결정 포맷으로 전면 개편.
 
 **검증**:
-- **로컬 품질 게이트 통과**:
-  - `python -m compileall src/mcst tests` -> Success.
-  - `python -m pytest` -> 21 Passed, 3 Skipped (Live 테스트).
-  - `python -m ruff check .` -> All checks passed.
-  - `python -m mypy src/mcst` -> Success (no issues found).
-- **Git Flow 제어 검증**:
-  - `chore/apply-mcp-and-style` 피처 브랜치 생성 및 정상적으로 모든 갱신 파일들을 스테이징하여 커밋. 이후 `master`에 안전하게 머지 예정.
+- **로컬 품질 게이트 통과**: `compileall`, `pytest`, `ruff`, `mypy` 모두 Success.
+- **Git Flow 제어 검증**: 피처 브랜치 커밋 및 master 병합 완료.
 
 **다음 작업**: 해당 변경 내용을 `master` 브랜치에 merge 및 통합 완료.
 
