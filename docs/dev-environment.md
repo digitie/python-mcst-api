@@ -36,29 +36,41 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 ---
 
-## 3. 품질 검증 파이프라인 (로컬 게이트)
+## 3. Windows Git 사용 원칙
+
+이 저장소의 worktree는 `.git` 포인터가 Windows 경로(`F:\...`)를 가리킬 수 있으므로, WSL 기본 `git`은 상태 조회나 브랜치 작업에서 실패할 수 있습니다.
+따라서 Git 관련 명령은 Windows Git (`git.exe`)를 기준으로 실행합니다.
+
+```powershell
+& "C:\Program Files\Git\cmd\git.exe" status
+& "C:\Program Files\Git\cmd\git.exe" switch -c agent/example master
+```
+
+---
+
+## 4. 품질 검증 파이프라인 (로컬 게이트)
 
 PR을 원격 저장소에 Push하기 전에 작업자가 직접 아래 4가지 품질 게이트를 실행해 결함 유무를 체크합니다 (CI Actions는 보조 수단입니다).
 
-### 3.1 1단계: 컴파일 검증
+### 4.1 1단계: 컴파일 검증
 파이썬 소스 코드에 구문 에러(Syntax Error)가 없는지 빠르게 검사합니다.
 ```bash
 python -m compileall src/mcst tests
 ```
 
-### 3.2 2단계: 오프라인 단위 테스트
+### 4.2 2단계: 오프라인 단위 테스트
 네트워크 호출 없이 `tests/fixtures/`의 mockup 응답들만을 활용해 파서 동작을 1.5초 이내에 빠르게 검증합니다.
 ```bash
 python -m pytest
 ```
 
-### 3.3 3단계: 코드 스타일 및 린트 검사
+### 4.3 3단계: 코드 스타일 및 린트 검사
 `ruff`를 가동하여 코드 스타일 정합성과 사용하지 않는 import, 불필요한 구문 등을 자동 검출합니다.
 ```bash
 python -m ruff check .
 ```
 
-### 3.4 4단계: 엄격한 타입 정적 검사
+### 4.4 4단계: 엄격한 타입 정적 검사
 `mypy` strict 모드를 활용해 라이브러리 인터페이스의 모든 타입 어노테이션이 어긋나지 않는지 빈틈없이 체크합니다.
 ```bash
 python -m mypy src/mcst
@@ -66,7 +78,7 @@ python -m mypy src/mcst
 
 ---
 
-## 4. 실서버 통합 테스트 (Live Test)
+## 5. 실서버 통합 테스트 (Live Test)
 
 실제 문화체육관광부 API 서버나 공공데이터포털 서버의 응답 규격이 깨지지 않았는지 가끔씩 live 상태로 확인해보고 싶을 때 구동합니다.
 이 테스트를 수행하려면 공공데이터포털(`data.go.kr`)에서 발급받은 서비스 일반 키가 OS 환경 변수에 등록되어 있어야 합니다.

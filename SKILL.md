@@ -36,6 +36,7 @@ python -m mypy src/mcst
 ```
 
 모든 개발 작업은 에이전트 전용 고정 worktree 경로(`python-mcst-api-claude`, `python-mcst-api-antigravity`, `python-mcst-api-codex`)에서 진행하며, 매 세션마다 `git fetch` 후 새 브랜치를 따고 `codegraph sync`를 수행하는 것을 원칙으로 합니다 (ADR-1).
+이때 Git 명령은 WSL 기본 `git` 대신 Windows Git (`git.exe`)를 사용합니다.
 
 ## 3. 디렉토리 지도
 

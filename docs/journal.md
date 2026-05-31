@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-05-31 (T-005 — Windows Git 사용 원칙 명시 및 CodeGraph 제외 정리)
+
+**작업**: worktree 환경에서 WSL `git`이 Windows 경로 기반 `.git` 포인터를 안정적으로 해석하지 못하는 문제를 피하기 위해, Windows Git 사용 원칙을 문서에 명시하고 `.codegraph/`를 버전 관리 대상에서 제외하였다.
+
+**구현 상세**:
+- `.gitignore`에 `.codegraph/`를 추가하여 CodeGraph 인덱스 산출물이 추적되지 않도록 정리함.
+- `AGENTS.md`, `README.md`, `CLAUDE.md`, `SKILL.md`, `docs/dev-environment.md`에 이 저장소 worktree에서는 WSL 기본 `git` 대신 Windows Git (`git.exe`)를 사용해야 한다는 운영 규칙을 추가함.
+- `docs/dev-environment.md`에는 `git.exe` 기준 예시 명령을 추가하여 브랜치 생성과 상태 조회 절차를 바로 따라 할 수 있게 정리함.
+
+**검증**:
+- Windows Git 경로 확인: `/mnt/c/Program Files/Git/cmd/git.exe`
+- worktree 상태 조회는 Windows 경로를 직접 해석할 수 있는 Git 사용을 전제로 문서와 설정이 일치하는지 확인함.
+
+**다음 작업**: 변경 사항을 검토한 뒤 PR 생성 및 merge 진행.
+
+---
+
 ## 2026-05-31 (T-002 — 워크트리 Prefix 변경 및 물리적 에이전트 독립 환경 구축 완료)
 
 **작업**: 각 에이전트의 작업 환경(worktree) prefix 규격을 기존 `mcst-*`에서 `python-mcst-api-*`로 전면 교체 및 고도화하였으며, 실제로 로컬 환경에 3개의 독립 worktree를 생성하고 `@colbymchenry/codegraph` 정적 코드 인덱스 초기화(`init -i`)까지 완벽하게 수행해 냄.
