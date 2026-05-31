@@ -26,6 +26,9 @@
 - [x] **T-002: 워크트리 Prefix 변경 및 물리적 에이전트 독립 환경 구축**
   - **일자**: 2026-05-31
   - **내용**: 각 에이전트 환경의 prefix를 `python-mcst-api-*`로 전면 교체 완료 및 로컬 Windows 터미널에서 3개의 worktree를 실제로 생성하고 `codegraph init`까지의 완벽한 인덱싱 초기화를 이룩함.
+- [x] **T-005: Windows Git 사용 원칙 명시 및 `.codegraph/` gitignore 추가**
+  - **일자**: 2026-05-31
+  - **내용**: worktree 환경에서 WSL 기본 `git` 대신 Windows Git (`git.exe`)를 사용하도록 `AGENTS.md`, `README.md`, `CLAUDE.md`, `SKILL.md`, `docs/dev-environment.md`에 규칙을 반영하고, `.codegraph/`를 `.gitignore`에 추가함.
 - [x] **T-001: maplibre-vworld-js 스타일 및 MCP 설정 전면 이식**
   - **일자**: 2026-05-31
   - **내용**: 에이전트별 독립 worktree 연동을 위한 JSON/TOML 설정 전면 갱신, CLAUDE.md 및 SKILL.md 가이드 신설, docs 디렉토리 하위 아키텍처/개발환경/상태요약 신설 및 저널/테스크/ADR 포맷 개편 완수.
