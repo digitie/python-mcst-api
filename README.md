@@ -18,8 +18,6 @@ pip install -e .[dev]
 
 이 저장소의 Windows 작업 환경에서는 `rg.exe`가 권한 문제로 실행되지 않을 수 있습니다. 검색이 필요하면 PowerShell의 `Get-ChildItem -Recurse -File`과 `Select-String`을 사용합니다.
 
-이 worktree에서는 Git 명령도 WSL 기본 `git` 대신 Windows Git (`git.exe`)를 사용합니다. 예를 들어 `/mnt/c/Program Files/Git/cmd/git.exe status`처럼 실행하면 `.git`가 Windows 경로를 가리키는 worktree에서도 상태 조회와 브랜치 작업이 안정적으로 동작합니다.
-
 문서는 UTF-8로 저장합니다. PowerShell에서 한글이 깨져 보이면 `Get-Content -Encoding UTF8`로 읽고, 스크립트 출력에는 필요에 따라 `$OutputEncoding`과 `[Console]::OutputEncoding`을 UTF-8로 지정합니다.
 
 ## 인증키

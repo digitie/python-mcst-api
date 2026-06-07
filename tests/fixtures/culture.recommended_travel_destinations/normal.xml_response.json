@@ -1,0 +1,86 @@
+{
+  "name": "normal.xml_response",
+  "function": "culture.recommended_travel_destinations",
+  "description": "KCISA XML 응답을 저장한 recommended_travel_destinations fixture replay 케이스",
+  "input": {
+    "dataset": "recommended_travel_destinations",
+    "keyword": null,
+    "page_no": 1,
+    "num_of_rows": 1,
+    "params": {}
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.kcisa.kr/openapi/API_TOU_046/request",
+    "query": {
+      "serviceKey": "<REDACTED>",
+      "numOfRows": 1,
+      "pageNo": 1
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/xml"
+    },
+    "body": {
+      "response": {
+        "header": {
+          "resultCode": "00",
+          "resultMsg": "OK"
+        },
+        "body": {
+          "pageNo": "1",
+          "numOfRows": "1",
+          "totalCount": "1",
+          "items": {
+            "item": {
+              "title": "아름다운 추천 여행지",
+              "address": "강원도 강릉시",
+              "latitude": "37.75",
+              "longitude": "128.89"
+            }
+          }
+        }
+      }
+    }
+  },
+  "parsed": {},
+  "processed": {
+    "items": [
+      {
+        "name": "아름다운 추천 여행지",
+        "address": "강원도 강릉시",
+        "tel": null,
+        "url": null,
+        "longitude": 128.89,
+        "latitude": 37.75,
+        "category": null,
+        "raw": {
+          "title": "아름다운 추천 여행지",
+          "address": "강원도 강릉시",
+          "latitude": "37.75",
+          "longitude": "128.89"
+        }
+      }
+    ],
+    "page_no": 1,
+    "num_of_rows": 1,
+    "total_count": 1,
+    "endpoint": null
+  },
+  "assertion": {
+    "mode": "snapshot",
+    "exclude_fields": [
+      "fetched_at",
+      "request_id",
+      "updated_at"
+    ],
+    "required_fields": []
+  },
+  "meta": {
+    "created_at": "2026-05-31T20:46:00+09:00",
+    "library_version": "0.1.0",
+    "source": "debug_ui"
+  }
+}

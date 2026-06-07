@@ -30,7 +30,6 @@ Pydantic v2 및 httpx를 기반으로 하며, downstream이 직접 사용할 수
 - Google Antigravity 2.0: `F:\dev\python-mcst-api-antigravity`
 
 새 작업 시 해당 worktree에서 `git fetch` 후 `git switch -c agent/<topic> master`로 브랜치를 생성합니다.
-이때 Git 명령은 WSL 기본 `git`이 아니라 Windows Git (`git.exe`)를 사용합니다.
 CodeGraph는 worktree마다 최초 1회 `codegraph init -i`를 실행하고, 이후에는 작업 시작마다 `codegraph sync`를 실행해 인덱스를 최신화합니다. `.codegraph/` 폴더는 gitignore 대상입니다.
 
 ## 로컬 개발 환경

@@ -4,20 +4,47 @@
 
 ---
 
-## 2026-05-31 (T-005 — Windows Git 사용 원칙 명시 및 CodeGraph 제외 정리)
+## 2026-06-07 (T-005 — S3 호환 RustFS 로컬 병행 저장 API 추가 및 동적 임포트 적용)
 
-**작업**: worktree 환경에서 WSL `git`이 Windows 경로 기반 `.git` 포인터를 안정적으로 해석하지 못하는 문제를 피하기 위해, Windows Git 사용 원칙을 문서에 명시하고 `.codegraph/`를 버전 관리 대상에서 제외하였다.
+**작업**: 다운스트림에서 문체부 파일데이터를 다운로드할 때 로컬 파일과 동시에 S3 호환 객체 저장소인 RustFS에 저장할 수 있도록 기능을 고도화하였다.
 
 **구현 상세**:
-- `.gitignore`에 `.codegraph/`를 추가하여 CodeGraph 인덱스 산출물이 추적되지 않도록 정리함.
-- `AGENTS.md`, `README.md`, `CLAUDE.md`, `SKILL.md`, `docs/dev-environment.md`에 이 저장소 worktree에서는 WSL 기본 `git` 대신 Windows Git (`git.exe`)를 사용해야 한다는 운영 규칙을 추가함.
-- `docs/dev-environment.md`에는 `git.exe` 기준 예시 명령을 추가하여 브랜치 생성과 상태 조회 절차를 바로 따라 할 수 있게 정리함.
+- **클라이언트 API 확장**:
+  - `mcst.file_data.FileDataClient`에 `save_rustfs` 동기 메서드 추가.
+  - `mcst.file_data.AsyncFileDataClient`에 `save_rustfs` 비동기 메서드 추가.
+  - 기존의 `save`는 그대로 유지하여 완벽한 하위 호환성 확보.
+- **의존성 경량성 및 동적 임포트 (Lazy Load)**:
+  - `boto3`와 `botocore` 패키지를 필수 의존성에 추가하지 않고, `save_rustfs` 호출 시점에만 `importlib`를 활용하여 동적으로 로딩하도록 처리. 
+  - 미설치 환경에서는 오류 안내 메시지와 함께 `ImportError`를 전파하도록 가드 처리.
+- **접속 자격증명 상속 체인 구현**:
+  - `_resolve_rustfs_credentials` 헬퍼를 추가하여 explicit 매개변수가 없을 시 환경 변수(`MCST_RUSTFS_*`, `RUSTFS_*`, `KRTOUR_MAP_OBJECT_STORE_*`, `AWS_*` 순)에서 자격증명과 엔드포인트를 상속하여 세팅되도록 구현.
+  - 비동기 클라이언트 호출 시 `asyncio.to_thread`로 감싸 스레드 풀에서 I/O를 비차단으로 구동.
+- **품질 보증**:
+  - `tests/test_clients.py`에 `unittest.mock`을 활용한 S3 `put_object` 동작 및 로컬 기록 무결성 검증용 Mock 유닛 테스트 케이스 2종 추가.
+  - 4대 품질 게이트(`compileall`, `pytest`, `ruff`, `mypy`) 검증을 완벽 통과.
+  - ADR-3 추가 및 `CHANGELOG.md` 갱신.
 
-**검증**:
-- Windows Git 경로 확인: `/mnt/c/Program Files/Git/cmd/git.exe`
-- worktree 상태 조회는 Windows 경로를 직접 해석할 수 있는 Git 사용을 전제로 문서와 설정이 일치하는지 확인함.
+**다음 작업**: 변경사항 풀 리퀘스트 및 메인 브랜치 반영 준비.
 
-**다음 작업**: 변경 사항을 검토한 뒤 PR 생성 및 merge 진행.
+---
+
+## 2026-05-31 (T-003 & T-004 — 신규 API 2종 추가 및 HTTP 엔진 튜닝 완료)
+
+**작업**: 관광/여가 테마 신규 API 2종을 카탈로그에 보완하고(`T-003`), 일시적 서버 혼잡에 유연하게 대처할 수 있도록 HTTP 엔진의 동적 타임아웃과 Full Jitter 백오프 튜닝(`T-004`)을 완수하였다.
+
+**구현 상세**:
+- **신규 카탈로그 통합 (`T-003`)**:
+  - `leisure_classes` (전국 문화 여가 활동 시설 - 클래스 OpenAPI, ID: 586) 및 `recommended_travel_destinations` (문화체육관광부 추천여행지 OpenAPI, ID: 581)를 `src/mcst/catalog.py` 및 `docs/catalog.md`에 추가.
+  - 동기/비동기 `CultureOpenApiClient`에 편리한 단축 헬퍼 메서드 추가 및 Pydantic `CultureRecord` 자동 매핑 적용.
+- **HTTP 전송 레이어 고도화 (`T-004`)**:
+  - `HttpClient`/`AsyncHttpClient` 및 `KcisaHttp`, `OdcloudHttp` 등의 호출 파이프라인 전반에 동적 `timeout: float | None = None` 파라미터를 추가하여 개별 요청별 타임아웃 튜닝 지원.
+  - `_sleep_before_retry` 및 `_async_sleep_before_retry`에 랜덤 지터(Full Jitter, 0~10%)를 적용하여 서버 혼잡 시 폭주 현상(Thundering Herd)을 완벽히 방지함.
+- **오프라인 테스트 강화**:
+  - `tests/fixtures/culture.leisure_classes/normal.xml_response.json` 및 `tests/fixtures/culture.recommended_travel_destinations/normal.xml_response.json` replay mock fixture 2종 생성.
+  - `tests/test_clients.py`에 신규 단축 메서드 동작 및 dynamic timeout 전송 무결성을 검증하는 동기/비동기 유닛 테스트 추가.
+  - 4대 로컬 품질 게이트(`compileall`, `pytest`, `ruff`, `mypy`)를 완벽히 통과 완료.
+
+**다음 작업**: 생성된 `feature/T002-T003` 브랜치의 원격 저장소 풀 리퀘스트 및 master 머지 준비.
 
 ---
 

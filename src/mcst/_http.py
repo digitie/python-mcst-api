@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import re
 import time
 from collections import defaultdict
@@ -161,12 +162,14 @@ class HttpClient:
         params: Mapping[str, Any] | None = None,
         *,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> ResponseLike:
         active_service_key = service_key or self.service_key
+        active_timeout = timeout if timeout is not None else self.timeout
         query = without_none(params or {})
         for attempt in range(self.retries + 1):
             try:
-                response = self.session.get(url, params=query, timeout=self.timeout)
+                response = self.session.get(url, params=query, timeout=active_timeout)
             except httpx.HTTPError as exc:
                 if attempt >= self.retries:
                     raise _network_error(url, exc, active_service_key) from exc
@@ -185,15 +188,22 @@ class HttpClient:
         params: Mapping[str, Any] | None = None,
         *,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[ResponseLike, dict[str, Any], dict[str, Any]]:
         """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
 
         query = without_none(params or {})
-        response = self.get_response(url, query, service_key=service_key)
+        response = self.get_response(url, query, service_key=service_key, timeout=timeout)
         return response, _request_data(url, query), _response_data(response)
 
-    def get_bytes(self, url: str, params: Mapping[str, Any] | None = None) -> bytes:
-        return self.get_response(url, params).content
+    def get_bytes(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> bytes:
+        return self.get_response(url, params, timeout=timeout).content
 
     def get_json(
         self,
@@ -201,9 +211,10 @@ class HttpClient:
         params: Mapping[str, Any] | None = None,
         *,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> Any:
         active_service_key = service_key or self.service_key
-        response = self.get_response(url, params, service_key=active_service_key)
+        response = self.get_response(url, params, service_key=active_service_key, timeout=timeout)
         try:
             return response.json()
         except ValueError as exc:
@@ -245,13 +256,15 @@ class AsyncHttpClient:
         params: Mapping[str, Any] | None = None,
         *,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> ResponseLike:
         active_service_key = service_key or self.service_key
+        active_timeout = timeout if timeout is not None else self.timeout
         query = without_none(params or {})
         for attempt in range(self.retries + 1):
             await self._bucket.acquire()
             try:
-                response = await self.session.get(url, params=query, timeout=self.timeout)
+                response = await self.session.get(url, params=query, timeout=active_timeout)
             except httpx.HTTPError as exc:
                 if attempt >= self.retries:
                     raise _network_error(url, exc, active_service_key) from exc
@@ -270,15 +283,22 @@ class AsyncHttpClient:
         params: Mapping[str, Any] | None = None,
         *,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[ResponseLike, dict[str, Any], dict[str, Any]]:
         """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
 
         query = without_none(params or {})
-        response = await self.get_response(url, query, service_key=service_key)
+        response = await self.get_response(url, query, service_key=service_key, timeout=timeout)
         return response, _request_data(url, query), _response_data(response)
 
-    async def get_bytes(self, url: str, params: Mapping[str, Any] | None = None) -> bytes:
-        return (await self.get_response(url, params)).content
+    async def get_bytes(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> bytes:
+        return (await self.get_response(url, params, timeout=timeout)).content
 
     async def get_json(
         self,
@@ -286,9 +306,12 @@ class AsyncHttpClient:
         params: Mapping[str, Any] | None = None,
         *,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> Any:
         active_service_key = service_key or self.service_key
-        response = await self.get_response(url, params, service_key=active_service_key)
+        response = await self.get_response(
+            url, params, service_key=active_service_key, timeout=timeout
+        )
         try:
             return response.json()
         except ValueError as exc:
@@ -312,10 +335,13 @@ class KcisaHttp(HttpClient):
         keyword: str | None = None,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> NormalizedPayload:
         active_service_key = _require_key(service_key or self.service_key, endpoint_url)
         query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
-        response = self.get_response(endpoint_url, query, service_key=active_service_key)
+        response = self.get_response(
+            endpoint_url, query, service_key=active_service_key, timeout=timeout
+        )
         return _normalized_response(
             response,
             endpoint_url,
@@ -333,6 +359,7 @@ class KcisaHttp(HttpClient):
         keyword: str | None = None,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
         """KCISA 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
 
@@ -342,6 +369,7 @@ class KcisaHttp(HttpClient):
             endpoint_url,
             query,
             service_key=active_service_key,
+            timeout=timeout,
         )
         payload = _decode_payload(response)
         response_data["body"] = redact_sensitive(payload)
@@ -362,10 +390,13 @@ class AsyncKcisaHttp(AsyncHttpClient):
         keyword: str | None = None,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> NormalizedPayload:
         active_service_key = _require_key(service_key or self.service_key, endpoint_url)
         query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
-        response = await self.get_response(endpoint_url, query, service_key=active_service_key)
+        response = await self.get_response(
+            endpoint_url, query, service_key=active_service_key, timeout=timeout
+        )
         return _normalized_response(
             response,
             endpoint_url,
@@ -383,6 +414,7 @@ class AsyncKcisaHttp(AsyncHttpClient):
         keyword: str | None = None,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
         """KCISA 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
 
@@ -392,6 +424,7 @@ class AsyncKcisaHttp(AsyncHttpClient):
             endpoint_url,
             query,
             service_key=active_service_key,
+            timeout=timeout,
         )
         payload = _decode_payload(response)
         response_data["body"] = redact_sensitive(payload)
@@ -414,6 +447,7 @@ class OdcloudHttp(HttpClient):
         per_page: int,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> NormalizedPayload:
         active_service_key = _require_key(service_key or self.service_key, public_data_pk)
         url, query = _odcloud_url_query(
@@ -425,7 +459,7 @@ class OdcloudHttp(HttpClient):
             active_service_key,
             params,
         )
-        payload = self.get_json(url, query, service_key=active_service_key)
+        payload = self.get_json(url, query, service_key=active_service_key, timeout=timeout)
         return _normalized_odcloud_payload(payload, url, page_no, per_page, active_service_key)
 
     def get_debug_page(
@@ -437,6 +471,7 @@ class OdcloudHttp(HttpClient):
         per_page: int,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
         """ODCloud 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
 
@@ -454,6 +489,7 @@ class OdcloudHttp(HttpClient):
             url,
             query,
             service_key=active_service_key,
+            timeout=timeout,
         )
         payload = _json_payload(response, url, active_service_key)
         response_data["body"] = redact_sensitive(payload)
@@ -481,6 +517,7 @@ class AsyncOdcloudHttp(AsyncHttpClient):
         per_page: int,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> NormalizedPayload:
         active_service_key = _require_key(service_key or self.service_key, public_data_pk)
         url, query = _odcloud_url_query(
@@ -492,7 +529,7 @@ class AsyncOdcloudHttp(AsyncHttpClient):
             active_service_key,
             params,
         )
-        payload = await self.get_json(url, query, service_key=active_service_key)
+        payload = await self.get_json(url, query, service_key=active_service_key, timeout=timeout)
         return _normalized_odcloud_payload(payload, url, page_no, per_page, active_service_key)
 
     async def get_debug_page(
@@ -504,6 +541,7 @@ class AsyncOdcloudHttp(AsyncHttpClient):
         per_page: int,
         params: Mapping[str, Any] | None = None,
         service_key: str | None = None,
+        timeout: float | None = None,
     ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
         """ODCloud 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
 
@@ -521,6 +559,7 @@ class AsyncOdcloudHttp(AsyncHttpClient):
             url,
             query,
             service_key=active_service_key,
+            timeout=timeout,
         )
         payload = _json_payload(response, url, active_service_key)
         response_data["body"] = redact_sensitive(payload)
@@ -633,11 +672,15 @@ def _require_key(service_key: str | None, endpoint: str) -> str:
 
 
 def _sleep_before_retry(attempt: int) -> None:
-    time.sleep(min(0.3 * (2**attempt), 4.0))
+    backoff = 0.3 * (2**attempt)
+    jitter = random.uniform(0, 0.1 * backoff)
+    time.sleep(min(backoff + jitter, 4.0))
 
 
 async def _async_sleep_before_retry(attempt: int) -> None:
-    await asyncio.sleep(min(0.3 * (2**attempt), 4.0))
+    backoff = 0.3 * (2**attempt)
+    jitter = random.uniform(0, 0.1 * backoff)
+    await asyncio.sleep(min(backoff + jitter, 4.0))
 
 
 def _raise_for_status(

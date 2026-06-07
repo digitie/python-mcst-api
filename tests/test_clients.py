@@ -8,6 +8,7 @@ import pytest
 from mcst import (
     AsyncCultureOpenApiClient,
     AsyncDataGoFileApiClient,
+    AsyncFileDataClient,
     CultureOpenApiClient,
     DataGoFileApiClient,
     FileDataClient,
@@ -36,6 +37,7 @@ class FakeSession:
     def __init__(self, response: FakeResponse) -> None:
         self.response = response
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.last_timeout: float | None = None
 
     def get(
         self,
@@ -45,6 +47,7 @@ class FakeSession:
         timeout: float,
     ) -> FakeResponse:
         self.calls.append((url, dict(params or {})))
+        self.last_timeout = timeout
         return self.response
 
 
@@ -52,6 +55,7 @@ class AsyncFakeSession:
     def __init__(self, response: FakeResponse) -> None:
         self.response = response
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.last_timeout: float | None = None
         self.closed = False
 
     async def get(
@@ -62,6 +66,7 @@ class AsyncFakeSession:
         timeout: float,
     ) -> FakeResponse:
         self.calls.append((url, dict(params or {})))
+        self.last_timeout = timeout
         return self.response
 
     async def aclose(self) -> None:
@@ -209,3 +214,137 @@ def test_read_csv_rejects_link_only_entries():
 
     with pytest.raises(McstRequestError):
         list(client.iter_csv("tourism_complexes"))
+
+
+def test_culture_client_new_helpers_and_dynamic_timeout():
+    xml = """
+    <response>
+      <header><resultCode>00</resultCode><resultMsg>OK</resultMsg></header>
+      <body>
+        <pageNo>1</pageNo><numOfRows>1</numOfRows><totalCount>1</totalCount>
+        <items>
+          <item><title>신규 시설</title><address>강원도 강릉시</address></item>
+        </items>
+      </body>
+    </response>
+    """
+    session = FakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
+    client = CultureOpenApiClient("secret-key", session=session)
+
+    # 신규 헬퍼 메서드 동기 호출 검증
+    page1 = client.leisure_classes(num_of_rows=1)
+    assert page1.items[0].name == "신규 시설"
+    assert session.calls[0][0] == "https://api.kcisa.kr/openapi/API_CIA_081/request"
+
+    page2 = client.recommended_travel_destinations(num_of_rows=1)
+    assert page2.items[0].name == "신규 시설"
+    assert session.calls[1][0] == "https://api.kcisa.kr/openapi/API_TOU_046/request"
+
+    # dynamic timeout 검증
+    client.leisure_classes(timeout=15.5)
+    assert session.last_timeout == 15.5
+
+
+@pytest.mark.asyncio
+async def test_async_culture_client_new_helpers_and_dynamic_timeout():
+    xml = """
+    <response>
+      <header><resultCode>00</resultCode><resultMsg>OK</resultMsg></header>
+      <body>
+        <pageNo>1</pageNo><numOfRows>1</numOfRows><totalCount>1</totalCount>
+        <items>
+          <item><title>비동기 신규 시설</title></item>
+        </items>
+      </body>
+    </response>
+    """
+    session = AsyncFakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
+
+    async with AsyncCultureOpenApiClient("secret-key", session=session) as client:
+        page1 = await client.leisure_classes(num_of_rows=1)
+        assert page1.items[0].name == "비동기 신규 시설"
+        assert session.calls[0][0] == "https://api.kcisa.kr/openapi/API_CIA_081/request"
+
+        page2 = await client.recommended_travel_destinations(num_of_rows=1, timeout=8.8)
+        assert page2.items[0].name == "비동기 신규 시설"
+        assert session.calls[1][0] == "https://api.kcisa.kr/openapi/API_TOU_046/request"
+        assert session.last_timeout == 8.8
+
+
+def test_file_client_save_rustfs(tmp_path, monkeypatch):
+    import sys
+    import unittest.mock
+
+    session = FakeSession(FakeResponse("col1,col2\nval1,val2\n"))
+    client = FileDataClient(session=session)
+
+    mock_s3 = unittest.mock.MagicMock()
+    mock_boto3 = unittest.mock.MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    # 동적 mocking
+    monkeypatch.setitem(sys.modules, "boto3", mock_boto3)
+    monkeypatch.setitem(sys.modules, "botocore", unittest.mock.MagicMock())
+    monkeypatch.setitem(sys.modules, "botocore.config", unittest.mock.MagicMock())
+
+    monkeypatch.setenv("MCST_RUSTFS_ENDPOINT_URL", "http://test-rustfs:9000")
+    monkeypatch.setenv("MCST_RUSTFS_BUCKET", "test-bucket")
+
+    local_path = tmp_path / "test_data.csv"
+
+    saved_path = client.save_rustfs(
+        "leisure_classes_csv",
+        local_path,
+        object_key="custom_key.csv",
+    )
+
+    assert saved_path == local_path
+    assert local_path.read_text() == "col1,col2\nval1,val2\n"
+
+    mock_boto3.client.assert_called_once()
+    mock_s3.put_object.assert_called_once_with(
+        Bucket="test-bucket",
+        Key="custom_key.csv",
+        Body=b"col1,col2\nval1,val2\n",
+        ContentType="text/csv",
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_file_client_save_rustfs(tmp_path, monkeypatch):
+    import sys
+    import unittest.mock
+
+    session = AsyncFakeSession(FakeResponse("col1,col2\nval1,val2\n"))
+
+    mock_s3 = unittest.mock.MagicMock()
+    mock_boto3 = unittest.mock.MagicMock()
+    mock_boto3.client.return_value = mock_s3
+
+    # 동적 mocking
+    monkeypatch.setitem(sys.modules, "boto3", mock_boto3)
+    monkeypatch.setitem(sys.modules, "botocore", unittest.mock.MagicMock())
+    monkeypatch.setitem(sys.modules, "botocore.config", unittest.mock.MagicMock())
+
+    monkeypatch.setenv("MCST_RUSTFS_ENDPOINT_URL", "http://test-rustfs:9000")
+    monkeypatch.setenv("MCST_RUSTFS_BUCKET", "test-bucket")
+
+    local_path = tmp_path / "test_data_async.csv"
+
+    async with AsyncFileDataClient(session=session) as client:
+        saved_path = await client.save_rustfs(
+            "leisure_classes_csv",
+            local_path,
+            object_key="custom_key_async.csv",
+        )
+
+    assert saved_path == local_path
+    assert local_path.read_text() == "col1,col2\nval1,val2\n"
+
+    mock_boto3.client.assert_called_once()
+    mock_s3.put_object.assert_called_once_with(
+        Bucket="test-bucket",
+        Key="custom_key_async.csv",
+        Body=b"col1,col2\nval1,val2\n",
+        ContentType="text/csv",
+    )
