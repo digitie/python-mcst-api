@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 from collections.abc import Iterator
 from pathlib import Path
 from types import TracebackType
+from typing import Any
 
 from ._http import AsyncHttpClient, AsyncSessionLike, HttpClient, SessionLike
 from .catalog import ALL_DATASETS, CatalogEntry, DatasetKind, get_dataset
@@ -68,6 +70,61 @@ class FileDataClient:
         data = self.download(dataset)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+        return target
+
+    def save_rustfs(
+        self,
+        dataset: str | CatalogEntry,
+        path: str | Path,
+        *,
+        bucket: str | None = None,
+        object_key: str | None = None,
+        overwrite: bool = False,
+        endpoint_url: str | None = None,
+        region_name: str | None = None,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+    ) -> Path:
+        """데이터셋을 로컬 `path`에 다운로드하고 동시에 S3 호환 RustFS에도 저장합니다.
+
+        boto3 라이브러리가 런타임에 설치되어 있어야 합니다.
+        접속 정보가 생략된 경우 환경변수에서 조회합니다.
+        (우선순위: MCST_RUSTFS_* -> KRTOUR_MAP_OBJECT_STORE_* -> AWS_*)
+        """
+        target = Path(path)
+        if target.exists() and not overwrite:
+            raise FileExistsError(str(target))
+
+        creds = _resolve_rustfs_credentials(
+            bucket=bucket,
+            endpoint_url=endpoint_url,
+            region_name=region_name,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+        )
+        s3_client = _get_boto3_s3_client(creds)
+
+        # 1. 다운로드
+        data = self.download(dataset)
+
+        # 2. 로컬 저장
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+        # 3. RustFS (S3) 저장
+        key = object_key or target.name
+        try:
+            s3_client.put_object(
+                Bucket=creds["bucket"],
+                Key=key,
+                Body=data,
+                ContentType="text/csv" if key.endswith(".csv") else "application/octet-stream",
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"RustFS 업로드 실패: bucket={creds['bucket']!r}, key={key!r}"
+            ) from exc
+
         return target
 
     def read_csv(
@@ -162,6 +219,62 @@ class AsyncFileDataClient:
         target.write_bytes(data)
         return target
 
+    async def save_rustfs(
+        self,
+        dataset: str | CatalogEntry,
+        path: str | Path,
+        *,
+        bucket: str | None = None,
+        object_key: str | None = None,
+        overwrite: bool = False,
+        endpoint_url: str | None = None,
+        region_name: str | None = None,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+    ) -> Path:
+        """데이터셋을 로컬 `path`에 비동기로 다운로드하고 동시에 S3 호환 RustFS에도 저장합니다.
+
+        boto3 라이브러리가 런타임에 설치되어 있어야 합니다.
+        접속 정보가 생략된 경우 환경변수에서 조회합니다.
+        (우선순위: MCST_RUSTFS_* -> KRTOUR_MAP_OBJECT_STORE_* -> AWS_*)
+        """
+        target = Path(path)
+        if target.exists() and not overwrite:
+            raise FileExistsError(str(target))
+
+        creds = _resolve_rustfs_credentials(
+            bucket=bucket,
+            endpoint_url=endpoint_url,
+            region_name=region_name,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+        )
+        s3_client = _get_boto3_s3_client(creds)
+
+        # 1. 다운로드
+        data = await self.download(dataset)
+
+        # 2. 로컬 저장
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+        # 3. RustFS (S3) 저장
+        key = object_key or target.name
+        try:
+            await asyncio.to_thread(
+                s3_client.put_object,
+                Bucket=creds["bucket"],
+                Key=key,
+                Body=data,
+                ContentType="text/csv" if key.endswith(".csv") else "application/octet-stream",
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"RustFS 업로드 실패: bucket={creds['bucket']!r}, key={key!r}"
+            ) from exc
+
+        return target
+
     async def read_csv(
         self,
         dataset: str | CatalogEntry,
@@ -197,3 +310,86 @@ def _decode_csv_bytes(data: bytes, encoding: str | None) -> str:
     if last_error is not None:
         raise last_error
     return data.decode()
+
+
+def _resolve_rustfs_credentials(
+    bucket: str | None = None,
+    endpoint_url: str | None = None,
+    region_name: str | None = None,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+) -> dict[str, Any]:
+    """환경변수 및 명시적 매개변수로부터 RustFS(S3 호환) 접속 정보를 로딩합니다."""
+    import os
+
+    res_endpoint = (
+        endpoint_url
+        or os.getenv("MCST_RUSTFS_ENDPOINT_URL")
+        or os.getenv("RUSTFS_ENDPOINT")
+        or os.getenv("KRTOUR_MAP_OBJECT_STORE_ENDPOINT_URL")
+        or "http://127.0.0.1:9003"
+    )
+    res_bucket = (
+        bucket
+        or os.getenv("MCST_RUSTFS_BUCKET")
+        or os.getenv("RUSTFS_BUCKET")
+        or os.getenv("KRTOUR_MAP_OBJECT_STORE_BUCKET")
+        or "krtour-map"
+    )
+    res_region = (
+        region_name
+        or os.getenv("MCST_RUSTFS_REGION")
+        or os.getenv("RUSTFS_REGION")
+        or os.getenv("KRTOUR_MAP_OBJECT_STORE_REGION")
+        or os.getenv("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
+
+    res_access_key = (
+        access_key_id
+        or os.getenv("MCST_RUSTFS_ACCESS_KEY_ID")
+        or os.getenv("RUSTFS_ACCESS_KEY")
+        or os.getenv("KRTOUR_MAP_OBJECT_STORE_ACCESS_KEY_ID")
+        or os.getenv("AWS_ACCESS_KEY_ID")
+    )
+    res_secret_key = (
+        secret_access_key
+        or os.getenv("MCST_RUSTFS_SECRET_ACCESS_KEY")
+        or os.getenv("RUSTFS_SECRET_KEY")
+        or os.getenv("KRTOUR_MAP_OBJECT_STORE_SECRET_ACCESS_KEY")
+        or os.getenv("AWS_SECRET_ACCESS_KEY")
+    )
+
+    return {
+        "endpoint_url": res_endpoint,
+        "bucket": res_bucket,
+        "region_name": res_region,
+        "aws_access_key_id": res_access_key,
+        "aws_secret_access_key": res_secret_key,
+    }
+
+
+def _get_boto3_s3_client(creds: dict[str, Any]) -> Any:
+    """접속 설정에 기초하여 boto3 S3 클라이언트를 생성합니다."""
+    import importlib
+
+    try:
+        boto3 = importlib.import_module("boto3")
+        botocore_config = importlib.import_module("botocore.config")
+    except ImportError as exc:
+        raise ImportError(
+            "rustfs 저장 기능을 사용하려면 boto3 및 botocore 라이브러리가 필요합니다. "
+            "pip install boto3를 실행해 설치하십시오."
+        ) from exc
+
+    client_kwargs: dict[str, Any] = {
+        "region_name": creds["region_name"],
+        "config": botocore_config.Config(signature_version="s3v4"),
+    }
+    if creds["endpoint_url"]:
+        client_kwargs["endpoint_url"] = creds["endpoint_url"]
+    if creds["aws_access_key_id"] and creds["aws_secret_access_key"]:
+        client_kwargs["aws_access_key_id"] = creds["aws_access_key_id"]
+        client_kwargs["aws_secret_access_key"] = creds["aws_secret_access_key"]
+
+    return boto3.client("s3", **client_kwargs)

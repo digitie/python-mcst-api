@@ -111,6 +111,7 @@ class CultureOpenApiClient:
         page_no: int = 1,
         num_of_rows: int = 10,
         params: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> Page[CultureRecord]:
         """선별된 KCISA OpenAPI 데이터셋을 호출합니다."""
 
@@ -126,6 +127,7 @@ class CultureOpenApiClient:
             keyword=keyword,
             params=params,
             service_key=service_key,
+            timeout=timeout,
         )
         return Page(
             items=tuple(CultureRecord.from_row(row) for row in payload.items),
@@ -144,6 +146,7 @@ class CultureOpenApiClient:
         page_no: int = 1,
         num_of_rows: int = 10,
         params: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> DebugRun:
         """UI fixture 생성에 사용할 KCISA 디버그 실행 결과를 반환합니다."""
 
@@ -171,6 +174,7 @@ class CultureOpenApiClient:
                 keyword=keyword,
                 params=params,
                 service_key=service_key,
+                timeout=timeout,
             )
             page: Page[CultureRecord] = Page(
                 items=tuple(CultureRecord.from_row(row) for row in payload.items),
@@ -275,6 +279,12 @@ class CultureOpenApiClient:
     def cafe_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
         return self.request("cafe_bookstores", **kwargs)
 
+    def leisure_classes(self, **kwargs: Any) -> Page[CultureRecord]:
+        return self.request("leisure_classes", **kwargs)
+
+    def recommended_travel_destinations(self, **kwargs: Any) -> Page[CultureRecord]:
+        return self.request("recommended_travel_destinations", **kwargs)
+
     def _require_service_key(self, entry: CatalogEntry) -> str:
         service_key = self.service_key_for(entry)
         if service_key:
@@ -350,6 +360,7 @@ class AsyncCultureOpenApiClient:
         page_no: int = 1,
         num_of_rows: int = 10,
         params: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> Page[CultureRecord]:
         """선별된 KCISA OpenAPI 데이터셋을 비동기로 호출합니다."""
 
@@ -365,6 +376,7 @@ class AsyncCultureOpenApiClient:
             keyword=keyword,
             params=params,
             service_key=service_key,
+            timeout=timeout,
         )
         return Page(
             items=tuple(CultureRecord.from_row(row) for row in payload.items),
@@ -383,6 +395,7 @@ class AsyncCultureOpenApiClient:
         page_no: int = 1,
         num_of_rows: int = 10,
         params: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> DebugRun:
         """UI fixture 생성에 사용할 KCISA 비동기 디버그 실행 결과를 반환합니다."""
 
@@ -410,6 +423,7 @@ class AsyncCultureOpenApiClient:
                 keyword=keyword,
                 params=params,
                 service_key=service_key,
+                timeout=timeout,
             )
             page: Page[CultureRecord] = Page(
                 items=tuple(CultureRecord.from_row(row) for row in payload.items),
@@ -513,6 +527,12 @@ class AsyncCultureOpenApiClient:
 
     async def cafe_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
         return await self.request("cafe_bookstores", **kwargs)
+
+    async def leisure_classes(self, **kwargs: Any) -> Page[CultureRecord]:
+        return await self.request("leisure_classes", **kwargs)
+
+    async def recommended_travel_destinations(self, **kwargs: Any) -> Page[CultureRecord]:
+        return await self.request("recommended_travel_destinations", **kwargs)
 
     def _require_service_key(self, entry: CatalogEntry) -> str:
         service_key = self.service_key_for(entry)

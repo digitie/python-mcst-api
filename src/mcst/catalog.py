@@ -166,6 +166,26 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         tags=("leisure", "bookstore", "cafe", "operation", "poi"),
         notes="Library/book-related entry is included only as location/operation leisure data.",
     ),
+    "leisure_classes": CatalogEntry(
+        slug="leisure_classes",
+        title="한국문화정보원_전국 문화 여가 활동 시설(클래스)",
+        provider="한국문화정보원",
+        kind=DatasetKind.KCISA_OPEN_API,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=586&gubun=A",
+        endpoint_url="https://api.kcisa.kr/openapi/API_CIA_081/request",
+        tags=("leisure", "class", "poi"),
+    ),
+    "recommended_travel_destinations": CatalogEntry(
+        slug="recommended_travel_destinations",
+        title="문화체육관광부_추천여행지",
+        provider="문화체육관광부",
+        kind=DatasetKind.KCISA_OPEN_API,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=581&gubun=A",
+        endpoint_url="https://api.kcisa.kr/openapi/API_TOU_046/request",
+        tags=("tourism", "recommendation", "poi"),
+    ),
 }
 
 

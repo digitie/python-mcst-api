@@ -54,10 +54,6 @@
 - 이 Windows 환경에서는 `rg.exe`가 `Access is denied`로 실행되지 않을 수
   있습니다. 그런 경우 같은 내용을 `Get-ChildItem -Recurse -File`과
   `Select-String`으로 우회합니다.
-- 이 worktree에서는 WSL의 `git` 대신 Windows Git (`git.exe`, 예:
-  `/mnt/c/Program Files/Git/cmd/git.exe`)를 사용합니다. `.git`가 Windows 경로를
-  가리키는 경우가 있어 WSL `git`은 worktree 상태 조회나 브랜치 작업에 실패할 수
-  있습니다.
 - 문서는 UTF-8로 저장되어 있지만 PowerShell 기본 출력 인코딩 때문에 한글이
   깨져 보일 수 있습니다. 파일을 읽을 때는 `Get-Content -Encoding UTF8`을
   사용하고, Python 등으로 한글을 출력할 때는 필요하면 다음을 먼저 설정합니다.

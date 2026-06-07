@@ -68,6 +68,8 @@ async with McstClient.aio(service_keys={"cafe_bookstores": "..."}) as client:
 | `world_restaurants` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=594&gubun=A |
 | `small_theaters` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=595&gubun=A |
 | `meeting_seminar_facilities` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=596&gubun=A |
+| `leisure_classes` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=586&gubun=A |
+| `recommended_travel_destinations` | 문화체육관광부 | https://www.culture.go.kr/data/openapi/openapiView.do?id=581&gubun=A |
 
 ## 구현된 파일 데이터
 

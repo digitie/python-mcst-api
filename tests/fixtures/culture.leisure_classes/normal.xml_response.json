@@ -1,0 +1,86 @@
+{
+  "name": "normal.xml_response",
+  "function": "culture.leisure_classes",
+  "description": "KCISA XML 응답을 저장한 leisure_classes fixture replay 케이스",
+  "input": {
+    "dataset": "leisure_classes",
+    "keyword": null,
+    "page_no": 1,
+    "num_of_rows": 1,
+    "params": {}
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.kcisa.kr/openapi/API_CIA_081/request",
+    "query": {
+      "serviceKey": "<REDACTED>",
+      "numOfRows": 1,
+      "pageNo": 1
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "content-type": "application/xml"
+    },
+    "body": {
+      "response": {
+        "header": {
+          "resultCode": "00",
+          "resultMsg": "OK"
+        },
+        "body": {
+          "pageNo": "1",
+          "numOfRows": "1",
+          "totalCount": "1",
+          "items": {
+            "item": {
+              "title": "여가 클래스 시설",
+              "address": "서울시 마포구",
+              "latitude": "37.55",
+              "longitude": "126.92"
+            }
+          }
+        }
+      }
+    }
+  },
+  "parsed": {},
+  "processed": {
+    "items": [
+      {
+        "name": "여가 클래스 시설",
+        "address": "서울시 마포구",
+        "tel": null,
+        "url": null,
+        "longitude": 126.92,
+        "latitude": 37.55,
+        "category": null,
+        "raw": {
+          "title": "여가 클래스 시설",
+          "address": "서울시 마포구",
+          "latitude": "37.55",
+          "longitude": "126.92"
+        }
+      }
+    ],
+    "page_no": 1,
+    "num_of_rows": 1,
+    "total_count": 1,
+    "endpoint": null
+  },
+  "assertion": {
+    "mode": "snapshot",
+    "exclude_fields": [
+      "fetched_at",
+      "request_id",
+      "updated_at"
+    ],
+    "required_fields": []
+  },
+  "meta": {
+    "created_at": "2026-05-31T20:45:00+09:00",
+    "library_version": "0.1.0",
+    "source": "debug_ui"
+  }
+}
