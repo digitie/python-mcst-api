@@ -162,6 +162,16 @@ def test_culture_client_prefers_dataset_service_key():
     assert session.calls[0][1]["serviceKey"] == "cafe-key"
 
 
+def test_culture_client_exposes_used_bookstores_method():
+    session = FakeSession(FakeResponse("{}", headers={"Content-Type": "application/json"}))
+    client = CultureOpenApiClient("secret-key", session=session)
+
+    client.used_bookstores(num_of_rows=1)
+
+    assert session.calls[0][0] == "http://api.kcisa.kr/API_CNV_045/request"
+    assert session.calls[0][1]["numOfRows"] == 1
+
+
 def test_culture_client_requires_key_when_calling_endpoint():
     client = CultureOpenApiClient(service_key=None, session=FakeSession(FakeResponse("{}")))
 

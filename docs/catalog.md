@@ -61,6 +61,7 @@ async with McstClient.aio(service_keys={"cafe_bookstores": "..."}) as client:
 | `family_infant_culture_facilities` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=592&gubun=A |
 | `independent_bookstores` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=623&gubun=A |
 | `cafe_bookstores` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=624&gubun=A |
+| `used_bookstores` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=547&gubun=A |
 | `barrier_free_places` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=584&gubun=A |
 | `pet_friendly_culture_facilities` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=585&gubun=A |
 | `media_famous_places` | 한국문화정보원 | https://www.culture.go.kr/data/openapi/openapiView.do?id=583&gubun=A |
@@ -78,6 +79,7 @@ async with McstClient.aio(service_keys={"cafe_bookstores": "..."}) as client:
 | `family_infant_culture_facilities_csv` | 한국문화정보원 | https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000246&category=C&orderBy=dwldCnt&category=H&dataType=BATCH |
 | `independent_bookstores_csv` | 한국문화정보원 | https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000443&category=C&orderBy=dwldCnt&category=H&dataType=BATCH |
 | `cafe_bookstores_csv` | 한국문화정보원 | https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000444&category=C&orderBy=dwldCnt&category=H&dataType=BATCH |
+| `used_bookstores_csv` | 한국문화정보원 | https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000286&category=B&category=H&dataType=BATCH |
 | `leisure_activity_facilities_csv` | 한국문화정보원 | https://www.data.go.kr/data/15111393/fileData.do |
 | `leisure_camping_facilities_csv` | 한국문화정보원 | https://www.data.go.kr/data/15111395/fileData.do |
 | `leisure_classes_csv` | 한국문화정보원 | https://www.data.go.kr/data/15111397/fileData.do |

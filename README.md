@@ -141,6 +141,7 @@ API의 키만 요청에 사용합니다.
 - `family_infant_culture_facilities`: 전국 가족 유아 동반 가능 문화시설
 - `independent_bookstores`: 전국 독립서점 및 운영정보
 - `cafe_bookstores`: 카페가 있는 서점데이터
+- `used_bookstores`: 전국 중고서점 및 운영정보
 - `barrier_free_places`: 전국 문화예술관광지 배리어프리 정보
 - `pet_friendly_culture_facilities`: 전국 반려동물 동반가능 문화시설 위치
 - `media_famous_places`: 미디어콘텐츠 영상 내 유명지
@@ -156,6 +157,7 @@ API의 키만 요청에 사용합니다.
 - `leisure_activity_facilities_csv`: 전국 문화 여가 활동 시설(액티비티) 데이터
 - `leisure_camping_facilities_csv`: 전국 문화 여가 활동 시설(캠핑) 데이터
 - `leisure_classes_csv`: 전국 문화 여가 활동 시설(클래스) 데이터
+- `used_bookstores_csv`: 전국 중고서점 및 운영정보
 - `public_libraries`: 전국공공도서관정보
 - `small_libraries`: 작은도서관 운영 현황
 - `golf_courses_status`: 전국 골프장 현황

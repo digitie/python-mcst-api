@@ -26,7 +26,9 @@ def test_open_api_entries_have_kcisa_endpoints():
     for entry in CULTURE_OPEN_APIS.values():
         assert entry.kind == DatasetKind.KCISA_OPEN_API
         assert entry.endpoint_url is not None
-        assert entry.endpoint_url.startswith("https://api.kcisa.kr/openapi/")
+        assert entry.endpoint_url.startswith(
+            ("https://api.kcisa.kr/openapi/", "http://api.kcisa.kr/")
+        )
 
 
 def test_file_api_entries_have_download_or_link_urls():
@@ -39,7 +41,18 @@ def test_file_api_entries_have_download_or_link_urls():
 def test_get_api_catalog_returns_human_readable_labels():
     catalog = get_api_catalog(kind=DatasetKind.KCISA_OPEN_API)
     cafe = next(item for item in catalog if item["slug"] == "cafe_bookstores")
+    used = next(item for item in catalog if item["slug"] == "used_bookstores")
 
     assert cafe["title"] == "한국문화정보원_카페가 있는 서점데이터"
     assert cafe["label"] == "한국문화정보원_카페가 있는 서점데이터 (cafe_bookstores)"
     assert cafe["endpoint_url"] == "https://api.kcisa.kr/openapi/API_CIA_090/request"
+    assert used["title"] == "한국문화정보원_전국 중고서점 및 운영정보"
+    assert used["endpoint_url"] == "http://api.kcisa.kr/API_CNV_045/request"
+
+
+def test_used_bookstore_csv_is_registered_as_file_download_dataset():
+    entry = ALL_DATASETS["used_bookstores_csv"]
+
+    assert entry.kind == DatasetKind.FILE_DOWNLOAD
+    assert entry.detail_url.startswith("https://www.culture.go.kr/data/filedat/")
+    assert entry.spec_url == "https://www.culture.go.kr/data/openapi/openapiView.do?id=547&gubun=A"

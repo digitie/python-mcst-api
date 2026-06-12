@@ -155,6 +155,21 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         tags=("leisure", "bookstore", "cafe", "operation", "poi"),
         notes="Library/book-related entry is included only as location/operation leisure data.",
     ),
+    "used_bookstores": CatalogEntry(
+        slug="used_bookstores",
+        title="한국문화정보원_전국 중고서점 및 운영정보",
+        provider="한국문화정보원",
+        kind=DatasetKind.KCISA_OPEN_API,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=547&gubun=A",
+        endpoint_url="http://api.kcisa.kr/API_CNV_045/request",
+        update_cycle="연간",
+        tags=("leisure", "bookstore", "used", "operation", "poi"),
+        notes=(
+            "Library/book-related entry is included only as location/operation leisure data. "
+            "data.go.kr page reports realtime, culture.go.kr spec reports annual."
+        ),
+    ),
     "leisure_classes": CatalogEntry(
         slug="leisure_classes",
         title="한국문화정보원_전국 문화 여가 활동 시설(클래스)",
@@ -413,6 +428,24 @@ CULTURE_FILE_DATASETS: dict[str, CatalogEntry] = {
         tags=("leisure", "bookstore", "operation", "poi", "csv"),
         notes=(
             "파일 페이지 갱신주기: 월간. "
+            "Library/book-related entry is included only as location/operation leisure data."
+        ),
+    ),
+    "used_bookstores_csv": CatalogEntry(
+        slug="used_bookstores_csv",
+        title="한국문화정보원_전국 중고서점 및 운영정보",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000286&category=B&category=H&dataType=BATCH"
+        ),
+        spec_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=547&gubun=A",
+        update_cycle="연간",
+        tags=("leisure", "bookstore", "used", "operation", "poi", "csv"),
+        notes=(
+            "파일 페이지 갱신주기: 연간. "
             "Library/book-related entry is included only as location/operation leisure data."
         ),
     ),

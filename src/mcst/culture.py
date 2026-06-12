@@ -276,6 +276,9 @@ class CultureOpenApiClient:
     def cafe_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
         return self.request("cafe_bookstores", **kwargs)
 
+    def used_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
+        return self.request("used_bookstores", **kwargs)
+
     def leisure_classes(self, **kwargs: Any) -> Page[CultureRecord]:
         return self.request("leisure_classes", **kwargs)
 
@@ -515,6 +518,9 @@ class AsyncCultureOpenApiClient:
 
     async def cafe_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
         return await self.request("cafe_bookstores", **kwargs)
+
+    async def used_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
+        return await self.request("used_bookstores", **kwargs)
 
     async def leisure_classes(self, **kwargs: Any) -> Page[CultureRecord]:
         return await self.request("leisure_classes", **kwargs)
