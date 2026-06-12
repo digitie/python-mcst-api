@@ -169,7 +169,14 @@ class HttpClient:
         query = without_none(params or {})
         for attempt in range(self.retries + 1):
             try:
-                response = self.session.get(url, params=query, timeout=active_timeout)
+                # httpx는 params를 명시하면(빈 dict 포함) URL 자체의 query를
+                # 통째로 대체한다 — 파일 다운로드 페이지처럼 query가 URL에
+                # 박힌 호출(#9)에서 detail이 빈 셸로 렌더되는 원인. 비어 있으면
+                # params를 아예 전달하지 않는다.
+                if query:
+                    response = self.session.get(url, params=query, timeout=active_timeout)
+                else:
+                    response = self.session.get(url, timeout=active_timeout)
             except httpx.HTTPError as exc:
                 if attempt >= self.retries:
                     raise _network_error(url, exc, active_service_key) from exc
@@ -264,7 +271,14 @@ class AsyncHttpClient:
         for attempt in range(self.retries + 1):
             await self._bucket.acquire()
             try:
-                response = await self.session.get(url, params=query, timeout=active_timeout)
+                # 동기 클라이언트와 동일(#9): 빈 params는 URL query를 대체하므로
+                # 비어 있으면 전달하지 않는다.
+                if query:
+                    response = await self.session.get(
+                        url, params=query, timeout=active_timeout
+                    )
+                else:
+                    response = await self.session.get(url, timeout=active_timeout)
             except httpx.HTTPError as exc:
                 if attempt >= self.retries:
                     raise _network_error(url, exc, active_service_key) from exc

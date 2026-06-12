@@ -4,7 +4,22 @@
 
 ---
 
-## 2026-06-12 (#6/#7 — CSV 파일 다운로드 주경로 전환: 카탈로그 재편 + 스크레이핑 클라이언트)
+## 2026-06-12 (#9 — 빈 params가 URL query를 박탈: 파일 다운로드 live 전수 실패 수정)
+
+**작업**: #7 머지 직후 live 검증에서 culture.go.kr 상세페이지 13종 전부
+`could not find a CSV download link`로 실패. 격리 실험으로
+`session.get(url, params={})` — **httpx는 params를 명시하면(빈 dict 포함) URL
+자체의 query를 통째로 대체**함을 확인(`request.url`에 query 부재).
+`get_response`가 항상 `params=query`를 전달해 `fileDataNo` 등이 박탈된 빈 셸
+페이지를 받고 있었다. 기존 fixture 테스트는 fake가 httpx의 이 의미론을 흉내
+내지 않아 잡지 못했다.
+
+**구현**: 동기/비동기 `get_response` 모두 query가 비면 params를 전달하지 않음.
+httpx 의미론 모사 fake(`HttpxSemanticsFakeSession`) 회귀 테스트 추가. 수정 후
+**파일 카탈로그 15종 전수 live 다운로드 성공**(tourism_attractions 64,194행,
+media_famous_places 15,034행, pet_friendly 23,929행, public_libraries 1,296행 등).
+게이트: pytest 34 passed / ruff / mypy green.
+
 
 **작업**: KCISA OpenAPI(`api.kcisa.kr`)가 공인 DNS로 해석되지 않고 data.go.kr
 발급 키가 아닌 KCISA 전용 키를 요구(#6 — krtour-map T-212e live full reload에서

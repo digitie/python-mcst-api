@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- `HttpClient`/`AsyncHttpClient.get_response`가 빈 `params`(빈 dict)도 httpx에 명시 전달해 **URL 자체의 query string이 통째로 대체(박탈)**되던 결함 수정 (#9). 파일 다운로드 상세페이지처럼 query가 URL에 박힌 호출이 빈 셸 페이지를 받아 `extract_download_url`이 전부 실패했다 — 빈 params는 전달하지 않는다. httpx 의미론 모사 fake 회귀 테스트 추가. 수정 후 파일 카탈로그 15종 전수 live 다운로드 검증(2026-06-12).
+
 ### Added
 - CSV 파일 다운로드 카탈로그 신설 (#6, #7): `CULTURE_FILE_DATASETS` 14종 + `LIBRARY_FILE_DATASETS`. 파일명에 업로드 일시가 박힌 최신 CSV 링크를 다운로드 시점에 해석하는 `extract_download_url`/`resolve_file_url`(동기/비동기) 추가 — culture.go.kr `filedatDtl.do`(`fnFileDwld`)와 data.go.kr `fileData.do`(`fileDownload.do`) 스크레이핑, 한글/공백 query percent-encoding 정규화, 고정 `file_url` 폴백, 미해석 시 `McstParseError`. 실 다운로드 페이지 HTML fixture 기반 `tests/test_file_download.py` 신설.
 - S3 호환 객체 저장소인 RustFS에 로컬 저장과 함께 데이터를 적재하는 `save_rustfs` API를 `FileDataClient` 및 `AsyncFileDataClient`에 추가.
