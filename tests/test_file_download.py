@@ -96,3 +96,58 @@ def test_file_client_datasets_include_file_download_entries():
     slugs = {entry.slug for entry in client.datasets()}
 
     assert set(CULTURE_FILE_DATASETS) <= slugs
+
+
+class HttpxSemanticsFakeSession:
+    """httpx 의미론 모사 fake — ``params``를 명시하면(빈 dict 포함) URL 자체의
+    query를 **대체**한다 (#9 회귀 재현용). RoutedFakeSession은 url 문자열을
+    그대로 비교해 이 결함을 잡지 못했다."""
+
+    def __init__(self, routes: dict[str, FakeResponse]) -> None:
+        self.routes = routes
+        self.calls: list[str] = []
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, object] | None = None,
+        timeout: float,
+    ) -> FakeResponse:
+        if params is not None:
+            # httpx: explicit params는 기존 query를 통째로 대체한다.
+            base = url.split("?", 1)[0]
+            if params:
+                from urllib.parse import urlencode
+
+                url = f"{base}?{urlencode(params)}"
+            else:
+                url = base
+        self.calls.append(url)
+        try:
+            return self.routes[url]
+        except KeyError:  # pragma: no cover - 테스트 작성 오류 가드
+            raise AssertionError(f"unexpected URL in fake session: {url}") from None
+
+
+def test_get_response_preserves_url_query_when_no_params():
+    """#9 회귀: 빈 params가 detail_url의 query를 박탈해 빈 셸 페이지가 오던 버그.
+
+    httpx 의미론 fake로, params 없는 ``get_response`` 호출이 URL query를
+    보존하는지(=wrapper가 빈 params를 전달하지 않는지) 검증한다."""
+
+    entry = _file_download_entry(file_url=None)
+    csv_url = "https://big.kcisa.kr/common/bbsAtchFileDownload.do?downFileName=x.csv"
+    html = f"<a onclick=\"fnFileDwld('{csv_url}')\">다운로드</a>"
+    session = HttpxSemanticsFakeSession(
+        {
+            entry.detail_url: FakeResponse(html),
+            csv_url: FakeResponse("h1,h2\nv1,v2\n"),
+        }
+    )
+    client = FileDataClient(session=session)
+
+    rows = client.read_csv(entry)
+
+    assert rows == [{"h1": "v1", "h2": "v2"}]
+    assert session.calls[0] == entry.detail_url  # query 보존
