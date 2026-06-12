@@ -86,14 +86,14 @@ def test_culture_debug_request_redacts_key_and_saves_fixture(tmp_path):
 
 def test_data_go_debug_request_uses_fixture_function_name():
     response = FakeResponse(
-        '{"page":1,"perPage":1,"totalCount":1,"data":[{"클래스 타이틀":"도예 클래스"}]}',
+        '{"page":1,"perPage":1,"totalCount":1,"data":[{"도서관명":"시립 도서관"}]}',
         headers={"Content-Type": "application/json"},
     )
     client = DataGoFileApiClient("secret-key", session=FakeSession(response))
 
-    debug_run = client.debug_request("leisure_classes_csv", per_page=1)
+    debug_run = client.debug_request("public_libraries", per_page=1)
 
     assert debug_run.error is None
-    assert debug_run.function == "data_go.leisure_classes_csv"
+    assert debug_run.function == "data_go.public_libraries"
     assert debug_run.request["query"]["serviceKey"] == REDACTED
-    assert debug_run.processed["items"] == [{"클래스 타이틀": "도예 클래스"}]
+    assert debug_run.processed["items"] == [{"도서관명": "시립 도서관"}]

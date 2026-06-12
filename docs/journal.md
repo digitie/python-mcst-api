@@ -4,6 +4,36 @@
 
 ---
 
+## 2026-06-12 (#6/#7 — CSV 파일 다운로드 주경로 전환: 카탈로그 재편 + 스크레이핑 클라이언트)
+
+**작업**: KCISA OpenAPI(`api.kcisa.kr`)가 공인 DNS로 해석되지 않고 data.go.kr
+발급 키가 아닌 KCISA 전용 키를 요구(#6 — krtour-map T-212e live full reload에서
+HTTP 403/401 실측)하여, culture/도서관 데이터셋의 주요 수급 경로를 **서비스키가
+필요 없는 CSV 파일 다운로드**로 전환(#7)했다.
+
+**구현 상세**:
+- **카탈로그 재편** (`catalog.py`): `CULTURE_FILE_DATASETS` 14종
+  (`*_csv` + `golf_courses_status`) + `LIBRARY_FILE_DATASETS`(`public_libraries`)
+  신설. `CULTURE_OPEN_APIS`(11종)는 명세 참고용으로 강등. `update_cycle`은
+  각 명세서/fileData 페이지 실측값(2026-06-11).
+- **다운로드 시점 링크 해석** (`file_data.py`): CSV 파일명에 업로드 일시가
+  박혀 있어(`API_CIA_089_20260530182204.csv`) URL 하드코딩 불가 →
+  `extract_download_url`이 culture.go.kr `filedatDtl.do`의 `fnFileDwld(...)`
+  또는 data.go.kr `fileData.do`의 `fileDownload.do` 링크를 스크레이핑하고
+  한글/공백 query를 percent-encoding 정규화. `resolve_file_url`(동기/비동기)이
+  FILE_DOWNLOAD 항목을 해석하며, 미발견 시 고정 `file_url` 폴백, 둘 다 없으면
+  `McstParseError`. `iter_csv`/`read_csv`는 utf-8-sig/utf-8/cp949/euc-kr
+  인코딩 폴백.
+- **클라이언트 정리**: `CultureOpenApiClient`에서 파일 전용으로 이동한 3종
+  (multilingual_guide/small_theaters/meeting_seminar) 헬퍼 제거.
+  `DataGoFileApiClient`는 ODCloud 식별자(`public_data_pk`) 보유 항목 전용
+  (`public_libraries`)으로 정리.
+- **품질 보증**: 실 다운로드 페이지 HTML fixture 2종(culture/filedatDtl,
+  data.go.kr/fileData) 기반 `tests/test_file_download.py` 신설(추출/정규화/
+  폴백/에러/카탈로그 노출 7케이스) + 기존 클라이언트 테스트를 2-hop
+  (상세페이지→CSV) 라우팅 fake로 재정렬 + cp949 폴백 검증. 게이트:
+  pytest 33 passed / ruff / mypy 전부 green.
+
 ## 2026-06-07 (T-005 — S3 호환 RustFS 로컬 병행 저장 API 추가 및 동적 임포트 적용)
 
 **작업**: 다운스트림에서 문체부 파일데이터를 다운로드할 때 로컬 파일과 동시에 S3 호환 객체 저장소인 RustFS에 저장할 수 있도록 기능을 고도화하였다.

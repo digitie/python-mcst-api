@@ -1,4 +1,10 @@
-"""data.go.kr 자동변환 파일 API 클라이언트입니다."""
+"""data.go.kr 자동변환 파일 API 클라이언트입니다.
+
+2026-06-11 재편(#7) 이후 culture/도서관 CSV 데이터셋의 주요 경로는
+`mcst.file_data`의 파일 다운로드(서비스키 불필요)입니다. 이 클라이언트는
+ODCloud 식별자(`public_data_pk`)가 있는 항목에만 사용하며 서비스키가
+필요합니다.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,7 @@ from types import TracebackType
 from typing import Any
 
 from ._http import AsyncOdcloudHttp, AsyncSessionLike, OdcloudHttp, SessionLike
-from .catalog import FILE_DATASETS, CatalogEntry, DatasetKind, get_dataset
+from .catalog import ALL_DATASETS, CatalogEntry, DatasetKind, get_dataset
 from .debug import DebugRun, error_to_dict, processed_page
 from .exceptions import McstAuthError, McstRequestError
 from .models import Page, RawRecord
@@ -86,8 +92,10 @@ class DataGoFileApiClient:
 
         return tuple(
             entry
-            for entry in FILE_DATASETS.values()
-            if entry.public_data_pk and entry.public_data_detail_pk
+            for entry in ALL_DATASETS.values()
+            if entry.kind != DatasetKind.LINK
+            and entry.public_data_pk
+            and entry.public_data_detail_pk
         )
 
     def service_key_for(self, dataset: str | CatalogEntry) -> str | None:
@@ -191,20 +199,8 @@ class DataGoFileApiClient:
                 error=error_to_dict(exc),
             )
 
-    def leisure_activity_facilities(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("leisure_activity_facilities_csv", **kwargs)
-
-    def leisure_camping_facilities(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("leisure_camping_facilities_csv", **kwargs)
-
-    def leisure_classes(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("leisure_classes_csv", **kwargs)
-
     def public_libraries(self, **kwargs: Any) -> Page[RawRecord]:
         return self.request("public_libraries", **kwargs)
-
-    def small_libraries(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("small_libraries", **kwargs)
 
     def _require_service_key(self, entry: CatalogEntry) -> str:
         service_key = self.service_key_for(entry)
@@ -267,8 +263,10 @@ class AsyncDataGoFileApiClient:
 
         return tuple(
             entry
-            for entry in FILE_DATASETS.values()
-            if entry.public_data_pk and entry.public_data_detail_pk
+            for entry in ALL_DATASETS.values()
+            if entry.kind != DatasetKind.LINK
+            and entry.public_data_pk
+            and entry.public_data_detail_pk
         )
 
     def service_key_for(self, dataset: str | CatalogEntry) -> str | None:
@@ -372,20 +370,8 @@ class AsyncDataGoFileApiClient:
                 error=error_to_dict(exc),
             )
 
-    async def leisure_activity_facilities(self, **kwargs: Any) -> Page[RawRecord]:
-        return await self.request("leisure_activity_facilities_csv", **kwargs)
-
-    async def leisure_camping_facilities(self, **kwargs: Any) -> Page[RawRecord]:
-        return await self.request("leisure_camping_facilities_csv", **kwargs)
-
-    async def leisure_classes(self, **kwargs: Any) -> Page[RawRecord]:
-        return await self.request("leisure_classes_csv", **kwargs)
-
     async def public_libraries(self, **kwargs: Any) -> Page[RawRecord]:
         return await self.request("public_libraries", **kwargs)
-
-    async def small_libraries(self, **kwargs: Any) -> Page[RawRecord]:
-        return await self.request("small_libraries", **kwargs)
 
     def _require_service_key(self, entry: CatalogEntry) -> str:
         service_key = self.service_key_for(entry)

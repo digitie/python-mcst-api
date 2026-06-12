@@ -1,4 +1,10 @@
-"""culture.go.kr/KCISA OpenAPI 데이터셋 클라이언트입니다."""
+"""culture.go.kr/KCISA OpenAPI 데이터셋 클라이언트입니다.
+
+주의(#6, #7): `api.kcisa.kr`는 공인 DNS로 해석되지 않는 환경이 많고
+data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를 요구합니다. culture 계열
+데이터셋의 주요 수급 경로는 `mcst.file_data`의 CSV 파일 다운로드(서비스키
+불필요)이며, 이 클라이언트는 OpenAPI 명세 참고/검증용으로 유지합니다.
+"""
 
 from __future__ import annotations
 
@@ -261,17 +267,8 @@ class CultureOpenApiClient:
     def family_infant_culture_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
         return self.request("family_infant_culture_facilities", **kwargs)
 
-    def multilingual_guide_culture_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("multilingual_guide_culture_facilities", **kwargs)
-
     def world_restaurants(self, **kwargs: Any) -> Page[CultureRecord]:
         return self.request("world_restaurants", **kwargs)
-
-    def small_theaters(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("small_theaters", **kwargs)
-
-    def meeting_seminar_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("meeting_seminar_facilities", **kwargs)
 
     def independent_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
         return self.request("independent_bookstores", **kwargs)
@@ -510,17 +507,8 @@ class AsyncCultureOpenApiClient:
     async def family_infant_culture_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
         return await self.request("family_infant_culture_facilities", **kwargs)
 
-    async def multilingual_guide_culture_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return await self.request("multilingual_guide_culture_facilities", **kwargs)
-
     async def world_restaurants(self, **kwargs: Any) -> Page[CultureRecord]:
         return await self.request("world_restaurants", **kwargs)
-
-    async def small_theaters(self, **kwargs: Any) -> Page[CultureRecord]:
-        return await self.request("small_theaters", **kwargs)
-
-    async def meeting_seminar_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return await self.request("meeting_seminar_facilities", **kwargs)
 
     async def independent_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
         return await self.request("independent_bookstores", **kwargs)
