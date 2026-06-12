@@ -1,17 +1,62 @@
-"""선별된 문체부 파일데이터 다운로드 클라이언트입니다."""
+"""선별된 문체부 파일데이터 다운로드 클라이언트입니다.
+
+CSV 파일 이름에는 업로드 일시가 박혀 있어(`API_CIA_089_20260530182204.csv`
+형태) 다운로드 URL을 하드코딩할 수 없습니다. 이 모듈은 다운로드 시점에
+카탈로그 항목의 파일 다운로드 페이지(`detail_url`)를 스크레이핑해 현재
+CSV 링크를 얻은 뒤 받습니다. 서비스키는 필요 없습니다.
+
+- culture.go.kr `filedatDtl.do`: "파일 다운로드" 버튼의
+  `onclick="fnFileDwld('https://big.kcisa.kr/common/bbsAtchFileDownload.do?...')"`
+  에서 추출합니다.
+- data.go.kr `fileData.do`: 페이지에 박힌 JSON-LD `contentUrl`
+  (`https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=...`)에서
+  추출합니다.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import csv
+import html as html_module
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from types import TracebackType
 from typing import Any
+from urllib.parse import urljoin
+
+import httpx
 
 from ._http import AsyncHttpClient, AsyncSessionLike, HttpClient, SessionLike
 from .catalog import ALL_DATASETS, CatalogEntry, DatasetKind, get_dataset
-from .exceptions import McstRequestError
+from .exceptions import McstParseError, McstRequestError
+
+_DOWNLOADABLE_KINDS = frozenset({DatasetKind.FILE_DOWNLOAD, DatasetKind.DATA_GO_FILE_API})
+_CULTURE_FILE_URL_RE = re.compile(
+    r"https://big\.kcisa\.kr/common/bbsAtchFileDownload\.do[^'\"<>]*"
+)
+_DATA_GO_FILE_URL_RE = re.compile(
+    r"(?:https://www\.data\.go\.kr)?/cmm/cmm/fileDownload\.do\?[^'\"<>]*"
+)
+
+
+def extract_download_url(page_html: str, page_url: str) -> str | None:
+    """파일 다운로드 페이지 HTML에서 현재 CSV 다운로드 링크를 추출합니다.
+
+    링크를 찾지 못하면 None을 반환합니다. 추출된 링크의 한글/공백 query
+    값은 percent-encoding으로 정규화합니다.
+    """
+
+    if "filedatDtl.do" in page_url:
+        match = _CULTURE_FILE_URL_RE.search(page_html)
+    elif "fileData.do" in page_url:
+        match = _DATA_GO_FILE_URL_RE.search(page_html)
+    else:
+        return None
+    if match is None:
+        return None
+    raw = html_module.unescape(match.group(0))
+    return str(httpx.URL(urljoin(page_url, raw)))
 
 
 class FileDataClient:
@@ -45,15 +90,35 @@ class FileDataClient:
     def datasets(self) -> tuple[CatalogEntry, ...]:
         """다운로드 또는 연결 URL이 있는 항목을 반환합니다."""
 
-        return tuple(entry for entry in ALL_DATASETS.values() if entry.file_url)
+        return tuple(
+            entry
+            for entry in ALL_DATASETS.values()
+            if entry.kind in _DOWNLOADABLE_KINDS or entry.file_url
+        )
+
+    def resolve_file_url(self, dataset: str | CatalogEntry) -> str:
+        """파일 다운로드 페이지를 스크레이핑해 현재 CSV 링크를 반환합니다.
+
+        파일 다운로드 데이터셋이 아니면 카탈로그의 고정 `file_url`을
+        반환합니다.
+        """
+
+        entry = _resolve_download(dataset)
+        if entry.kind in _DOWNLOADABLE_KINDS:
+            page = self._http.get_response(entry.detail_url)
+            url = extract_download_url(page.text, entry.detail_url)
+            if url:
+                return url
+            return _fallback_file_url(entry)
+        if entry.file_url:
+            return entry.file_url
+        raise McstRequestError(f"{entry.slug} does not have a file URL")
 
     def download(self, dataset: str | CatalogEntry) -> bytes:
         """선별된 파일데이터 또는 연결 원천 URL을 다운로드합니다."""
 
         entry = _resolve_download(dataset)
-        if not entry.file_url:
-            raise McstRequestError(f"{entry.slug} does not have a file URL")
-        return self._http.get_bytes(entry.file_url)
+        return self._http.get_bytes(self.resolve_file_url(entry))
 
     def save(
         self,
@@ -192,15 +257,35 @@ class AsyncFileDataClient:
     def datasets(self) -> tuple[CatalogEntry, ...]:
         """다운로드 또는 연결 URL이 있는 항목을 반환합니다."""
 
-        return tuple(entry for entry in ALL_DATASETS.values() if entry.file_url)
+        return tuple(
+            entry
+            for entry in ALL_DATASETS.values()
+            if entry.kind in _DOWNLOADABLE_KINDS or entry.file_url
+        )
+
+    async def resolve_file_url(self, dataset: str | CatalogEntry) -> str:
+        """파일 다운로드 페이지를 스크레이핑해 현재 CSV 링크를 반환합니다.
+
+        파일 다운로드 데이터셋이 아니면 카탈로그의 고정 `file_url`을
+        반환합니다.
+        """
+
+        entry = _resolve_download(dataset)
+        if entry.kind in _DOWNLOADABLE_KINDS:
+            page = await self._http.get_response(entry.detail_url)
+            url = extract_download_url(page.text, entry.detail_url)
+            if url:
+                return url
+            return _fallback_file_url(entry)
+        if entry.file_url:
+            return entry.file_url
+        raise McstRequestError(f"{entry.slug} does not have a file URL")
 
     async def download(self, dataset: str | CatalogEntry) -> bytes:
         """선별된 파일데이터 또는 연결 원천 URL을 비동기로 다운로드합니다."""
 
         entry = _resolve_download(dataset)
-        if not entry.file_url:
-            raise McstRequestError(f"{entry.slug} does not have a file URL")
-        return await self._http.get_bytes(entry.file_url)
+        return await self._http.get_bytes(await self.resolve_file_url(entry))
 
     async def save(
         self,
@@ -295,6 +380,16 @@ def _resolve_download(dataset: str | CatalogEntry) -> CatalogEntry:
     if isinstance(dataset, CatalogEntry):
         return dataset
     return get_dataset(dataset)
+
+
+def _fallback_file_url(entry: CatalogEntry) -> str:
+    if entry.file_url:
+        return entry.file_url
+    raise McstParseError(
+        f"could not find a CSV download link on {entry.detail_url}",
+        endpoint=entry.detail_url,
+        failure_kind="parse",
+    )
 
 
 def _decode_csv_bytes(data: bytes, encoding: str | None) -> str:

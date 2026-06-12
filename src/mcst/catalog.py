@@ -2,6 +2,16 @@
 
 이 카탈로그는 한국관광공사 서비스, 행정안전부 자료, 지자체 단독 제공 자료,
 도서관 소장자료/서지 데이터셋을 의도적으로 제외합니다.
+
+2026-06-11 재편(#7): MCST culture/도서관 데이터는 CSV 파일 다운로드를 주요
+경로로 사용합니다(`CULTURE_FILE_DATASETS`, `LIBRARY_FILE_DATASETS`).
+KCISA OpenAPI(`api.kcisa.kr`)는 공인 DNS로 해석되지 않고 KCISA 전용 발급
+키가 필요해(#6) `CULTURE_OPEN_APIS`는 명세 참고용으로만 유지합니다.
+
+`update_cycle`은 각 데이터셋 명세서(`spec_url`, culture.go.kr openapiView)
+또는 data.go.kr fileData 페이지의 "업데이트 주기"를 2026-06-11에 실측한
+값입니다. culture.go.kr 파일 다운로드 페이지(filedatDtl)가 별도로 표기하는
+갱신주기는 `notes`에 기록합니다.
 """
 
 from __future__ import annotations
@@ -27,7 +37,14 @@ class DatasetKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class CatalogEntry:
-    """선별된 데이터셋 또는 API 항목입니다."""
+    """선별된 데이터셋 또는 API 항목입니다.
+
+    파일 다운로드 데이터셋(`FILE_DOWNLOAD`)은 `detail_url`이 파일 다운로드
+    페이지(culture.go.kr filedatDtl.do 또는 data.go.kr fileData.do)이고,
+    `spec_url`이 명세서 페이지입니다. 실제 CSV 링크는 파일명에 업로드
+    일시가 박혀 있어 하드코딩할 수 없으므로 다운로드 시점에 `detail_url`
+    페이지를 스크레이핑해 얻습니다 (`mcst.file_data`).
+    """
 
     slug: str
     title: str
@@ -35,6 +52,8 @@ class CatalogEntry:
     kind: DatasetKind
     source: SourcePortal
     detail_url: str
+    spec_url: str | None = None
+    update_cycle: str | None = None
     endpoint_url: str | None = None
     file_url: str | None = None
     public_data_pk: str | None = None
@@ -104,16 +123,6 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_085/request",
         tags=("family", "infant", "leisure", "poi"),
     ),
-    "multilingual_guide_culture_facilities": CatalogEntry(
-        slug="multilingual_guide_culture_facilities",
-        title="한국문화정보원_전국 다국어 가이드 제공 문화시설",
-        provider="한국문화정보원",
-        kind=DatasetKind.KCISA_OPEN_API,
-        source=SourcePortal.CULTURE_GO_KR,
-        detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=593&gubun=A",
-        endpoint_url="https://api.kcisa.kr/openapi/API_TOU_051/request",
-        tags=("tourism", "guide", "culture-facility", "poi"),
-    ),
     "world_restaurants": CatalogEntry(
         slug="world_restaurants",
         title="한국문화정보원_전국 세계음식점",
@@ -123,26 +132,6 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=594&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_TOU_052/request",
         tags=("travel", "food", "poi"),
-    ),
-    "small_theaters": CatalogEntry(
-        slug="small_theaters",
-        title="한국문화정보원_전국 연극장 및 소극장 정보",
-        provider="한국문화정보원",
-        kind=DatasetKind.KCISA_OPEN_API,
-        source=SourcePortal.CULTURE_GO_KR,
-        detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=595&gubun=A",
-        endpoint_url="https://api.kcisa.kr/openapi/API_TOU_053/request",
-        tags=("leisure", "performance", "theater", "poi"),
-    ),
-    "meeting_seminar_facilities": CatalogEntry(
-        slug="meeting_seminar_facilities",
-        title="한국문화정보원_전국 회의 세미나 시설정보",
-        provider="한국문화정보원",
-        kind=DatasetKind.KCISA_OPEN_API,
-        source=SourcePortal.CULTURE_GO_KR,
-        detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=596&gubun=A",
-        endpoint_url="https://api.kcisa.kr/openapi/API_CIA_086/request",
-        tags=("leisure", "meeting", "facility", "poi"),
     ),
     "independent_bookstores": CatalogEntry(
         slug="independent_bookstores",
@@ -189,16 +178,25 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
 }
 
 
-FILE_DATASETS: dict[str, CatalogEntry] = {
-    "family_infant_culture_facilities_csv": CatalogEntry(
-        slug="family_infant_culture_facilities_csv",
-        title="한국문화정보원_전국 가족 유아 동반 가능 문화시설",
-        provider="한국문화정보원",
+CULTURE_FILE_DATASETS: dict[str, CatalogEntry] = {
+    "recommended_travel_destinations_csv": CatalogEntry(
+        slug="recommended_travel_destinations_csv",
+        title="문화체육관광부_추천여행지",
+        provider="문화체육관광부",
         kind=DatasetKind.FILE_DOWNLOAD,
         source=SourcePortal.CULTURE_GO_KR,
-        detail_url="https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000246&category=C&orderBy=dwldCnt&category=H&dataType=BATCH",
-        file_url="https://big.kcisa.kr/common/bbsAtchFileDownload.do?downFileName=API_CIA_085_20260508183949.csv&downFilePath=apiExcelData&orginFileName=%ED%95%9C%EA%B5%AD%EB%AC%B8%ED%99%94%EC%A0%95%EB%B3%B4%EC%9B%90_%EC%A0%84%EA%B5%AD%20%EA%B0%80%EC%A1%B1%20%EC%9C%A0%EC%95%84%20%EB%8F%99%EB%B0%98%20%EA%B0%80%EB%8A%A5%20%EB%AC%B8%ED%99%94%EC%8B%9C%EC%84%A4(20260508).csv&dataType=BATCH&fileDatNo=00000000000000000246",
-        tags=("family", "infant", "leisure", "csv"),
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000299&category=D&orderBy=dwldCnt"
+            "&category=G&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=581&category=D&orderBy=rdfCnt&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("tourism", "recommendation", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
     ),
     "independent_bookstores_csv": CatalogEntry(
         slug="independent_bookstores_csv",
@@ -206,9 +204,116 @@ FILE_DATASETS: dict[str, CatalogEntry] = {
         provider="한국문화정보원",
         kind=DatasetKind.FILE_DOWNLOAD,
         source=SourcePortal.CULTURE_GO_KR,
-        detail_url="https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000443&category=C&orderBy=dwldCnt&category=H&dataType=BATCH",
-        file_url="https://big.kcisa.kr/common/bbsAtchFileDownload.do?downFileName=API_CIA_089_20260421182016.csv&downFilePath=apiExcelData&orginFileName=%ED%95%9C%EA%B5%AD%EB%AC%B8%ED%99%94%EC%A0%95%EB%B3%B4%EC%9B%90_%EC%A0%84%EA%B5%AD%20%EB%8F%85%EB%A6%BD%EC%84%9C%EC%A0%90%20%EB%B0%8F%20%EC%9A%B4%EC%98%81%EC%A0%95%EB%B3%B4(20260421).csv&dataType=BATCH&fileDatNo=00000000000000000443",
-        tags=("leisure", "bookstore", "csv"),
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000443&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=623&keyword=%EB%8F%85%EB%A6%BD%EC%84%9C%EC%A0%90&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("leisure", "bookstore", "operation", "poi", "csv"),
+        notes=(
+            "파일 페이지 갱신주기: 월간. "
+            "Library/book-related entry is included only as location/operation leisure data."
+        ),
+    ),
+    "media_famous_places_csv": CatalogEntry(
+        slug="media_famous_places_csv",
+        title="한국문화정보원_미디어콘텐츠 영상 내 유명지",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000412&category=D&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=583&category=D&orderBy=rdfCnt&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("tourism", "filming-location", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
+    ),
+    "tourism_attractions_csv": CatalogEntry(
+        slug="tourism_attractions_csv",
+        title="한국문화관광연구원 외_관광지정보",
+        provider="한국문화관광연구원 외",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000275"
+            "&keyword=%EA%B4%80%EA%B4%91%EC%A7%80%EC%A0%95%EB%B3%B4&category=C&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=319&category=D&orderBy=rdfCnt&gubun=A"
+        ),
+        update_cycle="연간",
+        tags=("tourism", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
+    ),
+    "world_restaurants_csv": CatalogEntry(
+        slug="world_restaurants_csv",
+        title="한국문화정보원_전국 세계음식점",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000416&category=D&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=594&keyword=%EC%84%B8%EA%B3%84%EC%9D%8C%EC%8B%9D%EC%A0%90&searchField=all&gubun=A"
+        ),
+        update_cycle="연간",
+        tags=("travel", "food", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 연간",
+    ),
+    "pet_friendly_culture_facilities_csv": CatalogEntry(
+        slug="pet_friendly_culture_facilities_csv",
+        title="한국문화정보원_전국 반려동물 동반가능 문화시설 위치",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000414&category=D&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=585&keyword=%EB%B0%98%EB%A0%A4%EB%8F%99%EB%AC%BC&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("leisure", "pet", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
+    ),
+    "barrier_free_places_csv": CatalogEntry(
+        slug="barrier_free_places_csv",
+        title="한국문화정보원_전국 문화예술관광지 배리어프리 정보",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000413&category=D&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=584&keyword=%EB%B0%B0%EB%A6%AC%EC%96%B4%ED%94%84%EB%A6%AC&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("tourism", "accessibility", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
     ),
     "cafe_bookstores_csv": CatalogEntry(
         slug="cafe_bookstores_csv",
@@ -216,58 +321,154 @@ FILE_DATASETS: dict[str, CatalogEntry] = {
         provider="한국문화정보원",
         kind=DatasetKind.FILE_DOWNLOAD,
         source=SourcePortal.CULTURE_GO_KR,
-        detail_url="https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000444&category=C&orderBy=dwldCnt&category=H&dataType=BATCH",
-        file_url="https://big.kcisa.kr/common/bbsAtchFileDownload.do?downFileName=API_CIA_090_20260421182016.csv&downFilePath=apiExcelData&orginFileName=%ED%95%9C%EA%B5%AD%EB%AC%B8%ED%99%94%EC%A0%95%EB%B3%B4%EC%9B%90_%EC%B9%B4%ED%8E%98%EA%B0%80%20%EC%9E%88%EB%8A%94%20%EC%84%9C%EC%A0%90%EB%8D%B0%EC%9D%B4%ED%84%B0(20260421).csv&dataType=BATCH&fileDatNo=00000000000000000444",
-        tags=("leisure", "bookstore", "cafe", "csv"),
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000444&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=624&keyword=%EC%B9%B4%ED%8E%98&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("leisure", "bookstore", "cafe", "operation", "poi", "csv"),
+        notes=(
+            "파일 페이지 갱신주기: 월간. "
+            "Library/book-related entry is included only as location/operation leisure data."
+        ),
     ),
     "leisure_activity_facilities_csv": CatalogEntry(
         slug="leisure_activity_facilities_csv",
-        title="한국문화정보원_전국 문화 여가 활동 시설(액티비티) 데이터",
+        title="한국문화정보원_전국 문화 여가 활동 시설(액티비티)",
         provider="한국문화정보원",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15111393/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003000511&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15111393",
-        public_data_detail_pk="uddi:703ed001-91d0-453c-b0d0-ee3c517fdecd",
-        tags=("leisure", "activity", "csv", "odcloud"),
-    ),
-    "leisure_camping_facilities_csv": CatalogEntry(
-        slug="leisure_camping_facilities_csv",
-        title="한국문화정보원_전국 문화 여가 활동 시설(캠핑) 데이터",
-        provider="한국문화정보원",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15111395/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003000448&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15111395",
-        public_data_detail_pk="uddi:8c528230-eda4-4d83-855a-bee73605e49f",
-        tags=("leisure", "camping", "csv", "odcloud"),
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000243&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=587&keyword=%EC%95%A1%ED%8B%B0%EB%B9%84%ED%8B%B0&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("leisure", "activity", "sports", "park", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
     ),
     "leisure_classes_csv": CatalogEntry(
         slug="leisure_classes_csv",
-        title="한국문화정보원_전국 문화 여가 활동 시설(클래스) 데이터",
+        title="한국문화정보원_전국 문화 여가 활동 시설(클래스)",
         provider="한국문화정보원",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15111397/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000002680050&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15111397",
-        public_data_detail_pk="uddi:b2a81057-13be-4bdb-a368-b753c19d3d61",
-        tags=("leisure", "class", "csv", "odcloud"),
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000242&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=586&keyword=%ED%81%B4%EB%9E%98%EC%8A%A4&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("leisure", "class", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
     ),
-    "world_restaurants_csv": CatalogEntry(
-        slug="world_restaurants_csv",
-        title="한국문화정보원_전국 세계 음식점 데이터",
+    "family_infant_culture_facilities_csv": CatalogEntry(
+        slug="family_infant_culture_facilities_csv",
+        title="한국문화정보원_전국 가족 유아 동반 가능 문화시설",
         provider="한국문화정보원",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15111398/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003000428&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15111398",
-        public_data_detail_pk="uddi:65f027c0-2c92-411b-b9f5-cb7382fde662",
-        tags=("travel", "food", "csv", "odcloud"),
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000246&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=592&keyword=%EC%9C%A0%EC%95%84&searchField=all&gubun=A"
+        ),
+        update_cycle="연간",
+        tags=("family", "infant", "leisure", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
     ),
+    "children_bookstores_csv": CatalogEntry(
+        slug="children_bookstores_csv",
+        title="한국문화정보원_전국 아동서점 운영정보",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000282&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=537&keyword=%EC%95%84%EB%8F%99%EC%84%9C%EC%A0%90&searchField=all&gubun=A"
+        ),
+        update_cycle="연간",
+        tags=("leisure", "bookstore", "operation", "poi", "csv"),
+        notes=(
+            "파일 페이지 갱신주기: 월간. "
+            "Library/book-related entry is included only as location/operation leisure data."
+        ),
+    ),
+    "leisure_camping_facilities_csv": CatalogEntry(
+        slug="leisure_camping_facilities_csv",
+        title="한국문화정보원_전국 문화 여가 활동 시설(캠핑)",
+        provider="한국문화정보원",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.CULTURE_GO_KR,
+        detail_url=(
+            "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+            "?fileDataNo=00000000000000000244&category=C&orderBy=dwldCnt"
+            "&category=H&dataType=BATCH"
+        ),
+        spec_url=(
+            "https://www.culture.go.kr/data/openapi/openapiView.do"
+            "?id=588&keyword=%EC%97%AC%EA%B0%80&searchField=all&gubun=A"
+        ),
+        update_cycle="상시",
+        tags=("leisure", "camping", "poi", "csv"),
+        notes="파일 페이지 갱신주기: 월간",
+    ),
+    "golf_courses_status": CatalogEntry(
+        slug="golf_courses_status",
+        title="문화체육관광부_전국 골프장 현황",
+        provider="문화체육관광부",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.DATA_GO_KR,
+        detail_url="https://www.data.go.kr/data/15118920/fileData.do",
+        update_cycle="수시 (1회성 데이터)",
+        public_data_pk="15118920",
+        public_data_detail_pk="uddi:0e5b12d2-1cc8-4caf-ba96-c2c7d1ef8d83",
+        tags=("leisure", "golf", "csv"),
+        notes="명세서 페이지 없음 — data.go.kr fileData 페이지의 업데이트 주기 실측값.",
+    ),
+}
+
+
+LIBRARY_FILE_DATASETS: dict[str, CatalogEntry] = {
+    "public_libraries": CatalogEntry(
+        slug="public_libraries",
+        title="문화체육관광부_국가도서관통계_전국공공도서관정보",
+        provider="문화체육관광부",
+        kind=DatasetKind.FILE_DOWNLOAD,
+        source=SourcePortal.DATA_GO_KR,
+        detail_url="https://www.data.go.kr/data/15072611/fileData.do",
+        update_cycle="연간",
+        public_data_pk="15072611",
+        public_data_detail_pk="uddi:4e0d4d95-76e2-4a03-9886-ba11052ac3fb",
+        tags=("library", "location", "operation", "csv"),
+        notes="Included as library location/operation data only; holdings are excluded.",
+    ),
+}
+
+
+FILE_DATASETS: dict[str, CatalogEntry] = {
     "tourism_lodging_status": CatalogEntry(
         slug="tourism_lodging_status",
         title="문화체육관광부_전국 관광숙박시설 현황",
@@ -291,18 +492,6 @@ FILE_DATASETS: dict[str, CatalogEntry] = {
         public_data_pk="15118900",
         public_data_detail_pk="uddi:b8fa9309-7c1f-415e-b706-9e189e4a056a",
         tags=("lodging", "hotel", "csv", "odcloud"),
-    ),
-    "golf_courses_status": CatalogEntry(
-        slug="golf_courses_status",
-        title="문화체육관광부_전국 골프장 현황",
-        provider="문화체육관광부",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15118920/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000002791834&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15118920",
-        public_data_detail_pk="uddi:0e5b12d2-1cc8-4caf-ba96-c2c7d1ef8d83",
-        tags=("leisure", "golf", "csv", "odcloud"),
     ),
     "public_sports_facilities": CatalogEntry(
         slug="public_sports_facilities",
@@ -339,32 +528,6 @@ FILE_DATASETS: dict[str, CatalogEntry] = {
         public_data_pk="15138980",
         public_data_detail_pk="uddi:eedc77c5-a56b-4e77-9c1d-9396fa9cc1d3",
         tags=("leisure", "sports", "event", "csv", "odcloud"),
-    ),
-    "public_libraries": CatalogEntry(
-        slug="public_libraries",
-        title="문화체육관광부_국가도서관통계_전국공공도서관정보",
-        provider="문화체육관광부",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15072611/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003516836&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15072611",
-        public_data_detail_pk="uddi:4e0d4d95-76e2-4a03-9886-ba11052ac3fb",
-        tags=("library", "location", "operation", "csv", "odcloud"),
-        notes="Included as library location/operation data only; holdings are excluded.",
-    ),
-    "small_libraries": CatalogEntry(
-        slug="small_libraries",
-        title="문화체육관광부_작은도서관 운영 현황",
-        provider="문화체육관광부",
-        kind=DatasetKind.DATA_GO_FILE_API,
-        source=SourcePortal.DATA_GO_KR,
-        detail_url="https://www.data.go.kr/data/15152519/fileData.do",
-        file_url="https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003527721&fileDetailSn=1&insertDataPrcus=N",
-        public_data_pk="15152519",
-        public_data_detail_pk="uddi:dd06fb56-1fab-4a0e-b6dc-ca0ea909173f",
-        tags=("library", "location", "operation", "csv", "odcloud"),
-        notes="Included as library location/operation data only; holdings are excluded.",
     ),
 }
 
@@ -447,6 +610,8 @@ LINK_DATASETS: dict[str, CatalogEntry] = {
 
 ALL_DATASETS: dict[str, CatalogEntry] = {
     **CULTURE_OPEN_APIS,
+    **CULTURE_FILE_DATASETS,
+    **LIBRARY_FILE_DATASETS,
     **FILE_DATASETS,
     **LINK_DATASETS,
 }
@@ -463,6 +628,8 @@ def catalog_entry_to_dict(entry: CatalogEntry) -> dict[str, Any]:
         "kind": entry.kind.value,
         "source": entry.source.value,
         "detail_url": entry.detail_url,
+        "spec_url": entry.spec_url,
+        "update_cycle": entry.update_cycle,
         "endpoint_url": entry.endpoint_url,
         "file_url": entry.file_url,
         "public_data_pk": entry.public_data_pk,

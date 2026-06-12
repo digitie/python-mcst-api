@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from .catalog import (
     ALL_DATASETS,
+    CULTURE_FILE_DATASETS,
     CULTURE_OPEN_APIS,
     FILE_DATASETS,
+    LIBRARY_FILE_DATASETS,
     CatalogEntry,
     DatasetKind,
     SourcePortal,
@@ -28,7 +30,7 @@ from .exceptions import (
     McstRequestError,
     McstServerError,
 )
-from .file_data import AsyncFileDataClient, FileDataClient
+from .file_data import AsyncFileDataClient, FileDataClient, extract_download_url
 from .models import CultureRecord, Page, RawRecord
 from .replay import replay_case
 
@@ -41,8 +43,10 @@ __all__ = [
     "AsyncDataGoFileApiClient",
     "AsyncFileDataClient",
     "AsyncMcstClient",
+    "CULTURE_FILE_DATASETS",
     "CULTURE_OPEN_APIS",
     "FILE_DATASETS",
+    "LIBRARY_FILE_DATASETS",
     "CatalogEntry",
     "CultureOpenApiClient",
     "CultureRecord",
@@ -63,6 +67,7 @@ __all__ = [
     "SourcePortal",
     "catalog_entry_to_dict",
     "dataset_label",
+    "extract_download_url",
     "get_api_catalog",
     "get_dataset",
     "iter_api_catalog",

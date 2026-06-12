@@ -22,9 +22,12 @@ class FakeResponse:
     text: str
     status_code: int = 200
     headers: dict[str, str] | None = None
+    body: bytes | None = None
 
     @property
     def content(self) -> bytes:
+        if self.body is not None:
+            return self.body
         return self.text.encode("utf-8")
 
     def json(self) -> Any:
@@ -68,6 +71,50 @@ class AsyncFakeSession:
         self.calls.append((url, dict(params or {})))
         self.last_timeout = timeout
         return self.response
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class RoutedFakeSession:
+    """URL별 응답 라우팅 fake — 파일 다운로드 2-hop(상세페이지→CSV) 흐름용."""
+
+    def __init__(self, routes: dict[str, FakeResponse]) -> None:
+        self.routes = routes
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float,
+    ) -> FakeResponse:
+        self.calls.append((url, dict(params or {})))
+        try:
+            return self.routes[url]
+        except KeyError:  # pragma: no cover - 테스트 작성 오류 가드
+            raise AssertionError(f"unexpected URL in fake session: {url}") from None
+
+
+class AsyncRoutedFakeSession:
+    def __init__(self, routes: dict[str, FakeResponse]) -> None:
+        self.routes = routes
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.closed = False
+
+    async def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float,
+    ) -> FakeResponse:
+        self.calls.append((url, dict(params or {})))
+        try:
+            return self.routes[url]
+        except KeyError:  # pragma: no cover - 테스트 작성 오류 가드
+            raise AssertionError(f"unexpected URL in fake session: {url}") from None
 
     async def aclose(self) -> None:
         self.closed = True
@@ -124,16 +171,16 @@ def test_culture_client_requires_key_when_calling_endpoint():
 
 def test_data_go_client_parses_odcloud_shape():
     response = FakeResponse(
-        '{"page":1,"perPage":1,"totalCount":2,"data":[{"클래스 타이틀":"도예 클래스"}]}',
+        '{"page":1,"perPage":1,"totalCount":2,"data":[{"도서관명":"시립 도서관"}]}',
         headers={"Content-Type": "application/json"},
     )
     session = FakeSession(response)
     client = DataGoFileApiClient("secret-key", session=session)
 
-    page = client.leisure_classes(per_page=1)
+    page = client.public_libraries(per_page=1)
 
     assert page.total_count == 2
-    assert page.items == ({"클래스 타이틀": "도예 클래스"},)
+    assert page.items == ({"도서관명": "시립 도서관"},)
     assert "serviceKey" in session.calls[0][1]
 
 
@@ -142,13 +189,13 @@ def test_data_go_client_prefers_dataset_service_key():
     session = FakeSession(response)
     client = DataGoFileApiClient(
         service_key="fallback-key",
-        service_keys={"leisure_classes_csv": "  class-key  "},
+        service_keys={"public_libraries": "  library-key  "},
         session=session,
     )
 
-    client.leisure_classes(per_page=1)
+    client.public_libraries(per_page=1)
 
-    assert session.calls[0][1]["serviceKey"] == "class-key"
+    assert session.calls[0][1]["serviceKey"] == "library-key"
 
 
 @pytest.mark.asyncio
@@ -177,15 +224,15 @@ async def test_async_culture_client_parses_xml_page():
 @pytest.mark.asyncio
 async def test_async_data_go_client_parses_odcloud_shape():
     response = FakeResponse(
-        '{"page":1,"perPage":1,"totalCount":1,"data":[{"클래스 타이틀":"비동기 클래스"}]}',
+        '{"page":1,"perPage":1,"totalCount":1,"data":[{"도서관명":"비동기 도서관"}]}',
         headers={"Content-Type": "application/json"},
     )
     session = AsyncFakeSession(response)
 
     async with AsyncDataGoFileApiClient("secret-key", session=session) as client:
-        page = await client.leisure_classes(per_page=1)
+        page = await client.public_libraries(per_page=1)
 
-    assert page.items == ({"클래스 타이틀": "비동기 클래스"},)
+    assert page.items == ({"도서관명": "비동기 도서관"},)
     assert session.calls[0][1]["serviceKey"] == "secret-key"
 
 
@@ -200,13 +247,42 @@ async def test_top_level_async_client_facade():
     assert client.closed is True
 
 
+_LEISURE_CLASSES_DETAIL_URL = (
+    "https://www.culture.go.kr/data/filedat/filedatDtl.do"
+    "?fileDataNo=00000000000000000242&category=C&orderBy=dwldCnt"
+    "&category=H&dataType=BATCH"
+)
+_LEISURE_CLASSES_CSV_URL = (
+    "https://big.kcisa.kr/common/bbsAtchFileDownload.do"
+    "?downFileName=API_CIA_081_20260530.csv&downFilePath=apiExcelData"
+)
+_LEISURE_CLASSES_DETAIL_HTML = (
+    "<a href=\"#none\" onclick=\"fnFileDwld('"
+    + _LEISURE_CLASSES_CSV_URL
+    + "')\">파일 다운로드</a>"
+)
+
+
 def test_file_client_reads_csv_with_encoding_fallback():
-    session = FakeSession(FakeResponse("name,address\nA,Seoul\n"))
+    """FILE_DOWNLOAD 데이터셋은 상세페이지 스크레이핑 → CSV 다운로드 2-hop이고,
+    utf-8로 못 읽는 본문은 cp949 폴백으로 디코딩한다."""
+
+    csv_bytes = "name,address\n가나다,서울\n".encode("cp949")
+    session = RoutedFakeSession(
+        {
+            _LEISURE_CLASSES_DETAIL_URL: FakeResponse(_LEISURE_CLASSES_DETAIL_HTML),
+            _LEISURE_CLASSES_CSV_URL: FakeResponse("", body=csv_bytes),
+        }
+    )
     client = FileDataClient(session=session)
 
     rows = client.read_csv("leisure_classes_csv")
 
-    assert rows == [{"name": "A", "address": "Seoul"}]
+    assert rows == [{"name": "가나다", "address": "서울"}]
+    assert [url for url, _ in session.calls] == [
+        _LEISURE_CLASSES_DETAIL_URL,
+        _LEISURE_CLASSES_CSV_URL,
+    ]
 
 
 def test_read_csv_rejects_link_only_entries():
@@ -275,7 +351,12 @@ def test_file_client_save_rustfs(tmp_path, monkeypatch):
     import sys
     import unittest.mock
 
-    session = FakeSession(FakeResponse("col1,col2\nval1,val2\n"))
+    session = RoutedFakeSession(
+        {
+            _LEISURE_CLASSES_DETAIL_URL: FakeResponse(_LEISURE_CLASSES_DETAIL_HTML),
+            _LEISURE_CLASSES_CSV_URL: FakeResponse("col1,col2\nval1,val2\n"),
+        }
+    )
     client = FileDataClient(session=session)
 
     mock_s3 = unittest.mock.MagicMock()
@@ -315,7 +396,12 @@ async def test_async_file_client_save_rustfs(tmp_path, monkeypatch):
     import sys
     import unittest.mock
 
-    session = AsyncFakeSession(FakeResponse("col1,col2\nval1,val2\n"))
+    session = AsyncRoutedFakeSession(
+        {
+            _LEISURE_CLASSES_DETAIL_URL: FakeResponse(_LEISURE_CLASSES_DETAIL_HTML),
+            _LEISURE_CLASSES_CSV_URL: FakeResponse("col1,col2\nval1,val2\n"),
+        }
+    )
 
     mock_s3 = unittest.mock.MagicMock()
     mock_boto3 = unittest.mock.MagicMock()
