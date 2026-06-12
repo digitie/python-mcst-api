@@ -199,7 +199,7 @@
 | `630` | [국립민속박물관_한국민속대백과사전](https://www.culture.go.kr/data/openapi/openapiView.do?id=630&category=B&gubun=A) | 무형유산 > 무형문화 | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `552` | [국립광주박물관 외_전시도록](https://www.culture.go.kr/data/openapi/openapiView.do?id=552&category=B&gubun=A) | 유형유산 > 유물(소장품) | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `551` | [국립중앙박물관 외_유물정보(주요유물)](https://www.culture.go.kr/data/openapi/openapiView.do?id=551&category=B&gubun=A) | 유형유산 > 유물(소장품) | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
-| `547` | [한국문화정보원_전국 중고서점 및 운영정보](https://www.culture.go.kr/data/openapi/openapiView.do?id=547&category=B&gubun=A) | 유형유산 > 유물(소장품) | 확장 후보 | 여행앱의 위치/축제/여가 정보로 검토 가능 |
+| `547` | [한국문화정보원_전국 중고서점 및 운영정보](https://www.culture.go.kr/data/openapi/openapiView.do?id=547&category=B&gubun=A) | 유형유산 > 유물(소장품) | 구현됨 | `used_bookstores` |
 | `545` | [국립국악원_국악연감 서비스](https://www.culture.go.kr/data/openapi/openapiView.do?id=545&category=B&gubun=A) | REST / JSON XML | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `540` | [국립중앙박물관 외_국립지방박물관 문화행사 통합정보](https://www.culture.go.kr/data/openapi/openapiView.do?id=540&category=B&gubun=A) | 공지및통계 > 공지 | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `539` | [국립경주박물관 외_국립지방박물관 통합 전시 정보](https://www.culture.go.kr/data/openapi/openapiView.do?id=539&category=B&gubun=A) | 행사 > 행사 | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
@@ -757,7 +757,7 @@
 | `00000000000000000006` | [한국예술인복지재단_문화소식](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000006&category=B&category=A&dataType=BATCH) | CSV / BATCH | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `00000000000000000284` | [국립중앙박물관 외_국립지방박물관 문화행사 통합정보](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000284&category=B&category=B&dataType=BATCH) | CSV / BATCH | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `00000000000000000181` | [국립국악원_국악연감 서비스](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000181&category=B&category=B&dataType=BATCH) | CSV / BATCH | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
-| `00000000000000000286` | [한국문화정보원_전국 중고서점 및 운영정보](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000286&category=B&category=H&dataType=BATCH) | CSV / BATCH | 확장 후보 | 여행앱의 위치/축제/여가 정보로 검토 가능 |
+| `00000000000000000286` | [한국문화정보원_전국 중고서점 및 운영정보](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000286&category=B&category=H&dataType=BATCH) | CSV / BATCH | 구현됨 | `used_bookstores_csv` |
 | `00000000000000000289` | [국립중앙박물관 외_유물정보(주요유물)](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000289&category=B&category=B&dataType=BATCH) | CSV / BATCH | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `00000000000000000290` | [국립광주박물관 외_전시도록](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000290&category=B&category=B&dataType=BATCH) | CSV / BATCH | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
 | `00000000000000000179` | [국립민속박물관_민속대백과사전](https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000179&category=B&category=B&dataType=BATCH) | CSV / BATCH | 미구현 | 현재 범위 밖 또는 세부 검토 필요 |
