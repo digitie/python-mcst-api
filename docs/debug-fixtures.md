@@ -18,7 +18,7 @@
 | `function` | fixture runner가 사용할 함수 식별자입니다. 예: `culture.leisure_activity_facilities`, `data_go.leisure_classes_csv` |
 | `input` | UI 또는 호출자가 입력한 dataset, paging, keyword, 추가 파라미터입니다. |
 | `request` | HTTP method, URL, query입니다. 인증키는 `<REDACTED>`로 마스킹됩니다. |
-| `response` | HTTP 상태, 응답 헤더, 파싱된 raw body입니다. |
+| `response` | HTTP 상태(`status_code`), 소요시간(`elapsed_ms`), 응답 헤더, 파싱된 raw body입니다. |
 | `parsed` | 라이브러리의 Pydantic `Page` 모델입니다. |
 | `processed` | replay snapshot 비교에 사용하는 안정화된 결과입니다. `raw`는 제외합니다. |
 | `trace` | UI에서 보여줄 주요 처리 단계입니다. |
@@ -97,29 +97,55 @@ tests/
 
 ## 별도 Streamlit UI에서의 사용
 
-Streamlit UI는 라이브러리 패키지와 분리합니다. 이 저장소에는 로컬 실행용 예시 UI를 `debug-ui/`에 두었습니다.
+Streamlit UI는 라이브러리 패키지와 분리합니다. 이 저장소에는 로컬 실행용 예시 UI를
+`examples/streamlit_debug_ui.py`에 두었습니다. Streamlit/pandas 의존성은
+`pyproject.toml`의 `debug-ui` optional extra로만 설치합니다.
 
 ```bash
-python -m pip install -r debug-ui/requirements.txt
-python -m streamlit run debug-ui/app.py
+pip install -e ".[debug-ui]"
+python -m streamlit run examples/streamlit_debug_ui.py
 ```
 
-최소 UI는 다음 탭을 제공합니다.
+UI는 다음 순서로 사이드바를 구성합니다.
+
+1. Data source(`KCISA OpenAPI` / `data.go.kr ODCloud 자동변환 API`) → API 2단 선택
+2. 선택한 API에 대한 설명 캡션 2줄(무엇을 하는 API인지, 어떤 데이터를 반환하는지)
+3. Environment: 실제 서비스가 읽는 env var(`KCISA_SERVICE_KEY`/`DATA_GO_KR_SERVICE_KEY`)
+   사용 여부를 선택하는 라디오
+4. Auth: 실제 쿼리 파라미터명인 `serviceKey` 입력창
+5. 서비스키 발급/활용신청 링크 버튼(카탈로그의 `detail_url`, `spec_url`)
+6. Timeout 숫자 입력
+7. Fixture 저장 기준 디렉터리(기본 `tests/fixtures`, `Custom...`으로 직접 입력 가능)
+
+메인 영역의 파라미터 입력 폼은 카탈로그의 `required_params`/`optional_params`
+메타데이터에서 위젯을 자동 생성합니다 — 데이터셋별 `if function_name == ...`
+분기가 없습니다. 실행은 항상 `McstClient.debug_fetch()`를 통해 카탈로그
+`kind`(`kcisa_open_api` / `data_go_file_api`)로 라우팅됩니다.
+
+고정 6개 탭을 제공합니다.
 
 - Raw Response
 - Pydantic Model
 - Processed Result
 - Validation Errors
 - Debug Trace
-- Fixture 저장
+- Fixture / Testcase
 
 데이터셋 선택 목록은 slug 대신 사람이 읽기 쉬운 데이터셋명과 slug를 함께 보여줍니다.
 Debug Trace 탭은 `get_api_catalog()`가 반환하는 카탈로그 항목을 표시해 endpoint,
-출처, 상세 페이지 URL을 바로 확인할 수 있게 합니다. 서비스 키는 복붙 과정에서
-앞뒤에 붙는 공백과 감싸는 따옴표를 제거한 뒤 요청에 사용합니다.
-Service key 입력칸은 선택한 데이터셋 slug별로 따로 유지되므로, API별 활용
-신청 키가 다른 경우에도 현재 API의 키만 요청 파라미터에 들어갑니다.
-입력칸 위에는 선택한 API의 카탈로그 상세 페이지로 이동하는 서비스키
-발급/활용신청 링크를 표시합니다.
+출처, 상세 페이지 URL, 요청/응답(상태 코드·소요시간 `elapsed_ms`)을 바로 확인할 수
+있게 합니다. 서비스 키는 복붙 과정에서 앞뒤에 붙는 공백과 감싸는 따옴표를 제거한
+뒤 요청에 사용합니다. Service key 입력칸은 선택한 데이터셋 slug별로 따로
+유지되므로, API별 활용 신청 키가 다른 경우에도 현재 API의 키만 요청 파라미터에
+들어갑니다.
 
-UI의 저장 버튼은 `save_fixture()`만 호출하면 됩니다. 라이브러리 패키지에는 Streamlit, pandas 같은 UI 의존성을 추가하지 않습니다.
+마지막 실행 결과는 `f"{kind}:{slug}"`로 세션 상태에 스코프되므로, data source나
+API를 전환해도 이전에 실행한 결과가 잘못 남아 보이지 않습니다.
+
+UI의 저장 버튼은 `save_fixture()`만 호출하면 됩니다. 라이브러리 패키지에는 Streamlit, pandas 같은 UI 의존성을 추가하지 않습니다(`mcst` 본체는 `debug-ui` extra에 의존하지 않습니다).
+
+`FILE_DOWNLOAD`(culture.go.kr/data.go.kr 파일 다운로드 페이지 스크레이핑 후 CSV
+다운로드)와 `LINK`(외부 링크만 있고 호출 가능한 API가 없음) kind의 데이터셋은
+`McstClient.debug_fetch()`가 지원하지 않습니다 — Data source 선택지에도
+노출하지 않으며, `mcst.file_data.FileDataClient`에는 아직 `DebugRun`을 만드는
+동등한 메서드가 없습니다.

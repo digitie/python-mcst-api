@@ -14,6 +14,7 @@ from .catalog import (
     catalog_entry_to_dict,
     dataset_label,
     get_api_catalog,
+    get_api_catalog_entry,
     get_dataset,
     iter_api_catalog,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "dataset_label",
     "extract_download_url",
     "get_api_catalog",
+    "get_api_catalog_entry",
     "get_dataset",
     "iter_api_catalog",
     "jsonable",

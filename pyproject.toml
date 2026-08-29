@@ -36,6 +36,10 @@ dev = [
   "ruff>=0.5",
   "mypy>=1.10",
 ]
+debug-ui = [
+  "pandas>=2",
+  "streamlit>=1.36",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

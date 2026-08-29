@@ -16,8 +16,8 @@
 | --- | --- | --- |
 | 동기 클라이언트 | `McstClient` | KCISA OpenAPI, data.go.kr 자동변환, 파일 다운로드를 하나로 묶은 편의 클라이언트 |
 | 비동기 클라이언트 | `McstClient.aio()` | 동일 기능을 제공하는 `httpx.AsyncClient` 기반 비동기 클라이언트 |
-| 카탈로그 조회 | `get_api_catalog()` | 지원 데이터셋을 사람이 읽을 수 있는 라벨과 endpoint로 JSON 직렬화 |
-| 디버그 fixture 저장 | `debug_request()` / `save_fixture()` | 실제 응답을 fixture로 저장해 오프라인 replay 테스트에 재사용 |
+| 카탈로그 조회 | `get_api_catalog()` / `get_api_catalog_entry()` | 지원 데이터셋을 사람이 읽을 수 있는 라벨, endpoint, 파라미터 메타데이터로 JSON 직렬화 |
+| 디버그 fixture 저장 | `McstClient.debug_fetch()` / `debug_request()` / `save_fixture()` | 카탈로그 `kind`로 라우팅되는 제네릭 디버그 실행 결과를 fixture로 저장해 오프라인 replay 테스트에 재사용 |
 
 ## 먼저 읽을 문서
 
@@ -153,8 +153,8 @@ python -m pytest tests/test_generated_fixtures.py
 로컬에서 기본 Streamlit 디버그 UI를 실행하려면 다음 명령을 사용합니다.
 
 ```bash
-python -m pip install -r debug-ui/requirements.txt
-python -m streamlit run debug-ui/app.py
+pip install -e ".[debug-ui]"
+python -m streamlit run examples/streamlit_debug_ui.py
 ```
 
 Debug Trace 탭은 선택한 데이터셋의 카탈로그 항목을 함께 보여줍니다. 예를 들어
@@ -223,7 +223,7 @@ python -m pytest -m live
 | `src/mcst/` | 라이브러리 소스 코드 (catalog, HTTP 엔진, 클라이언트, 모델, 예외) |
 | `tests/` | pytest 테스트 스위트 (오프라인 replay 테스트 + `@pytest.mark.live`) |
 | `docs/` | 설계, 카탈로그, 의사결정 기록(ADR), 작업 일지 |
-| `debug-ui/` | 로컬 Streamlit 디버그 UI (라이브러리 본체는 미의존) |
+| `examples/` | 로컬 Streamlit 디버그 UI(`streamlit_debug_ui.py`, `debug-ui` extra로만 설치, 라이브러리 본체는 미의존) |
 
 ## 문서/기여 규칙
 

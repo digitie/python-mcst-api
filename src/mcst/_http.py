@@ -202,8 +202,14 @@ class HttpClient:
 
         query = without_none(params or {})
         active_service_key = service_key or self.service_key
+        started_at = time.perf_counter()
         response = self.get_response(url, query, service_key=active_service_key, timeout=timeout)
-        return response, _request_data(url, query), _response_data(response, active_service_key)
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        return (
+            response,
+            _request_data(url, query),
+            _response_data(response, active_service_key, elapsed_ms=elapsed_ms),
+        )
 
     def get_bytes(
         self,
@@ -305,10 +311,16 @@ class AsyncHttpClient:
 
         query = without_none(params or {})
         active_service_key = service_key or self.service_key
+        started_at = time.perf_counter()
         response = await self.get_response(
             url, query, service_key=active_service_key, timeout=timeout
         )
-        return response, _request_data(url, query), _response_data(response, active_service_key)
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        return (
+            response,
+            _request_data(url, query),
+            _response_data(response, active_service_key, elapsed_ms=elapsed_ms),
+        )
 
     async def get_bytes(
         self,
@@ -600,10 +612,16 @@ def _request_data(url: str, query: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _response_data(response: ResponseLike, service_key: str | None = None) -> dict[str, Any]:
+def _response_data(
+    response: ResponseLike,
+    service_key: str | None = None,
+    *,
+    elapsed_ms: float | None = None,
+) -> dict[str, Any]:
     return {
         "status_code": response.status_code,
         "headers": {key: _redact(value, service_key) for key, value in response.headers.items()},
+        "elapsed_ms": elapsed_ms,
         "body": None,
     }
 
