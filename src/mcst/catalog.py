@@ -62,6 +62,13 @@ class CatalogEntry:
     public_data_detail_pk: str | None = None
     tags: tuple[str, ...] = ()
     notes: str | None = None
+    required_params: tuple[str, ...] = ()
+    """이 데이터셋 조회에 반드시 필요한, serviceKey/paging 외 추가 요청 파라미터입니다.
+
+    디버그 UI가 폼 위젯을 자동 생성하는 데 사용합니다(하드코딩 분기 금지).
+    """
+    optional_params: tuple[str, ...] = ()
+    """이 데이터셋 조회에 선택적으로 쓸 수 있는 추가 요청 파라미터입니다."""
 
 
 CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
@@ -74,6 +81,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=583&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_TOU_048/request",
         tags=("tourism", "filming-location", "poi"),
+        optional_params=("keyword",),
     ),
     "barrier_free_places": CatalogEntry(
         slug="barrier_free_places",
@@ -84,6 +92,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=584&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_TOU_049/request",
         tags=("tourism", "accessibility", "poi"),
+        optional_params=("keyword",),
     ),
     "pet_friendly_culture_facilities": CatalogEntry(
         slug="pet_friendly_culture_facilities",
@@ -94,6 +103,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=585&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_TOU_050/request",
         tags=("leisure", "pet", "poi"),
+        optional_params=("keyword",),
     ),
     "leisure_activity_facilities": CatalogEntry(
         slug="leisure_activity_facilities",
@@ -104,6 +114,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=587&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_082/request",
         tags=("leisure", "activity", "sports", "park", "poi"),
+        optional_params=("keyword",),
     ),
     "leisure_camping_facilities": CatalogEntry(
         slug="leisure_camping_facilities",
@@ -114,6 +125,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=588&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_083/request",
         tags=("leisure", "camping", "poi"),
+        optional_params=("keyword",),
     ),
     "family_infant_culture_facilities": CatalogEntry(
         slug="family_infant_culture_facilities",
@@ -124,6 +136,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=592&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_085/request",
         tags=("family", "infant", "leisure", "poi"),
+        optional_params=("keyword",),
     ),
     "world_restaurants": CatalogEntry(
         slug="world_restaurants",
@@ -134,6 +147,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=594&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_TOU_052/request",
         tags=("travel", "food", "poi"),
+        optional_params=("keyword",),
     ),
     "independent_bookstores": CatalogEntry(
         slug="independent_bookstores",
@@ -145,6 +159,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_089/request",
         tags=("leisure", "bookstore", "operation", "poi"),
         notes="Library/book-related entry is included only as location/operation leisure data.",
+        optional_params=("keyword",),
     ),
     "cafe_bookstores": CatalogEntry(
         slug="cafe_bookstores",
@@ -156,6 +171,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_090/request",
         tags=("leisure", "bookstore", "cafe", "operation", "poi"),
         notes="Library/book-related entry is included only as location/operation leisure data.",
+        optional_params=("keyword",),
     ),
     "used_bookstores": CatalogEntry(
         slug="used_bookstores",
@@ -171,6 +187,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
             "Library/book-related entry is included only as location/operation leisure data. "
             "data.go.kr page reports realtime, culture.go.kr spec reports annual."
         ),
+        optional_params=("keyword",),
     ),
     "leisure_classes": CatalogEntry(
         slug="leisure_classes",
@@ -181,6 +198,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=586&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_CIA_081/request",
         tags=("leisure", "class", "poi"),
+        optional_params=("keyword",),
     ),
     "recommended_travel_destinations": CatalogEntry(
         slug="recommended_travel_destinations",
@@ -191,6 +209,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=581&gubun=A",
         endpoint_url="https://api.kcisa.kr/openapi/API_TOU_046/request",
         tags=("tourism", "recommendation", "poi"),
+        optional_params=("keyword",),
     ),
 }
 
@@ -671,6 +690,8 @@ def catalog_entry_to_dict(entry: CatalogEntry) -> dict[str, Any]:
         "public_data_detail_pk": entry.public_data_detail_pk,
         "tags": list(entry.tags),
         "notes": entry.notes,
+        "required_params": list(entry.required_params),
+        "optional_params": list(entry.optional_params),
     }
 
 
@@ -716,6 +737,17 @@ def get_api_catalog(
         catalog_entry_to_dict(entry)
         for entry in iter_api_catalog(kind=kind, include_links=include_links)
     )
+
+
+def get_api_catalog_entry(dataset: str | CatalogEntry) -> dict[str, Any]:
+    """slug 또는 `CatalogEntry`로 카탈로그 항목 하나를 dict로 반환합니다.
+
+    디버그 UI가 선택한 데이터셋 하나의 메타데이터(파라미터 스펙 포함)를
+    조회할 때 사용합니다.
+    """
+
+    entry = dataset if isinstance(dataset, CatalogEntry) else get_dataset(dataset)
+    return catalog_entry_to_dict(entry)
 
 
 def get_dataset(slug: str) -> CatalogEntry:

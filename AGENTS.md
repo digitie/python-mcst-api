@@ -63,14 +63,18 @@
 
 ## 모듈 책임
 
-- `mcst.catalog`: 선별 데이터/API 목록과 포함/제외 판단의 기준입니다.
+- `mcst.catalog`: 선별 데이터/API 목록과 포함/제외 판단의 기준입니다. 각 항목의
+  `required_params`/`optional_params`는 디버그 UI가 폼 위젯을 자동 생성하는 데
+  쓰는 파라미터 메타데이터입니다.
 - `mcst._http`: 세션, 재시도, 응답 정규화, 제공자 오류 매핑을 담당합니다.
 - `mcst._convert`: 응답 경계에서 쓰는 작은 변환 헬퍼입니다.
 - `mcst.models`: 공개 Pydantic 응답 모델입니다.
 - `mcst.culture`: `culture.go.kr`/KCISA OpenAPI 클라이언트입니다.
 - `mcst.data_go`: 공공데이터포털 ODCloud 자동변환 파일 API 클라이언트입니다.
 - `mcst.file_data`: 직접 파일 다운로드와 CSV 파싱 헬퍼입니다.
-- `mcst.client`: 상위 편의 클라이언트입니다.
+- `mcst.client`: 상위 편의 클라이언트입니다. `debug_fetch()`/`adebug_fetch()`는
+  데이터셋별 하드코딩 분기 없이 카탈로그 `kind`로 `culture`/`data_go` 하위
+  클라이언트를 라우팅하는 제네릭 디버그 실행 진입점입니다.
 - `mcst.debug`: Web UI나 로컬 디버그 도구가 쓸 `DebugRun`, 민감정보 마스킹,
   fixture 저장 헬퍼입니다. Streamlit에는 의존하지 않습니다.
 - `mcst.replay`: 저장된 fixture response를 외부 API 호출 없이 다시 처리하는
