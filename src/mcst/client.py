@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from types import TracebackType
 from typing import Any
 
+from ._http import AsyncSessionLike, SessionLike
 from .culture import AsyncCultureOpenApiClient, CultureOpenApiClient
 from .data_go import AsyncDataGoFileApiClient, DataGoFileApiClient
 from .file_data import AsyncFileDataClient, FileDataClient
@@ -21,7 +22,7 @@ class McstClient:
         service_keys: Mapping[str, str] | None = None,
         timeout: float = 10.0,
         retries: int = 3,
-        session: Any | None = None,
+        session: SessionLike | None = None,
         max_rps: float = 5.0,
     ) -> None:
         self.culture = CultureOpenApiClient(
@@ -78,7 +79,7 @@ class McstClient:
         service_keys: Mapping[str, str] | None = None,
         timeout: float = 10.0,
         retries: int = 3,
-        session: Any | None = None,
+        session: AsyncSessionLike | None = None,
         max_rps: float = 5.0,
     ) -> AsyncMcstClient:
         return AsyncMcstClient(
@@ -101,7 +102,7 @@ class AsyncMcstClient:
         service_keys: Mapping[str, str] | None = None,
         timeout: float = 10.0,
         retries: int = 3,
-        session: Any | None = None,
+        session: AsyncSessionLike | None = None,
         max_rps: float = 5.0,
     ) -> None:
         self.culture = AsyncCultureOpenApiClient(

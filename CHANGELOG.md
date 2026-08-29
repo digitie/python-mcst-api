@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- 4인 전문 리뷰어 서브에이전트의 적대적 코드 리뷰로 발견·검증된 버그 수정: `resolve_file_url()`/
+  `download()`/`save()`가 `DatasetKind.LINK` 카탈로그 항목(관광단지·관광특구·추천여행지·전통사찰·
+  문화기반시설·등록공연장 등 6종)을 가드하지 않아 실제 CSV 대신 HTML 안내 페이지를 그대로 저장하던
+  문제(`iter_csv()`/`read_csv()`는 이미 가드하고 있어 불일치였음), 다운로드된 바이트가 zip 컨테이너인
+  경우를 전혀 감지하지 않아 `UnicodeDecodeError`로 크래시하거나 더 나쁘게는 손상된 CSV를 조용히
+  파싱하던 문제(zip 매직바이트 감지 후 CSV 멤버 추출 추가) 등. GitHub Actions CI(`lint`/`typecheck`/
+  `test`) 추가.
 - `HttpClient`/`AsyncHttpClient.get_response`가 빈 `params`(빈 dict)도 httpx에 명시 전달해 **URL 자체의 query string이 통째로 대체(박탈)**되던 결함 수정 (#9). 파일 다운로드 상세페이지처럼 query가 URL에 박힌 호출이 빈 셸 페이지를 받아 `extract_download_url`이 전부 실패했다 — 빈 params는 전달하지 않는다. httpx 의미론 모사 fake 회귀 테스트 추가. 수정 후 파일 카탈로그 15종 전수 live 다운로드 검증(2026-06-12).
 
 ### Added
