@@ -1,10 +1,37 @@
 # python-mcst-api
 
-`python-mcst-api`는 문화체육관광부 및 산하기관의 공개 데이터 중 여행, 여가, 숙박, 문화시설, 도서관 위치/운영 정보에 맞춘 비공식 Python 클라이언트입니다.
+![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
+![GPL-3.0-or-later 라이선스](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)
+![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)
+
+`python-mcst-api`는 문화체육관광부 및 산하기관의 공개 데이터 중 여행, 여가, 숙박, 문화시설, 도서관 위치/운영 정보에 맞춘 비공식 Python 클라이언트입니다. `mcst.catalog`에 등록된 데이터셋별로 KCISA OpenAPI, 공공데이터포털(data.go.kr) 자동변환 API, 파일 다운로드를 동기/비동기 typed client와 Pydantic 응답 모델로 감쌉니다.
 
 한국관광공사 제공 서비스, 행정안전부/지자체 단독 제공 자료, 도서관 소장자료/서지/ISBN/추천도서 데이터는 제외했습니다.
 
-현재 구현은 선별형이지만 `culture.go.kr`의 다른 OpenAPI와 파일데이터도 같은 카탈로그 구조로 확장할 수 있습니다. 전체 목록 조사표는 [docs/culture-go-kr-full-catalog.md](docs/culture-go-kr-full-catalog.md)에 정리했습니다.
+현재 구현 상태와 최근 변경 사항은 [CHANGELOG.md](CHANGELOG.md)의 `[Unreleased]` 절을 참고하십시오.
+
+## 제공 표면
+
+| 표면 | 진입점 | 설명 |
+| --- | --- | --- |
+| 동기 클라이언트 | `McstClient` | KCISA OpenAPI, data.go.kr 자동변환, 파일 다운로드를 하나로 묶은 편의 클라이언트 |
+| 비동기 클라이언트 | `McstClient.aio()` | 동일 기능을 제공하는 `httpx.AsyncClient` 기반 비동기 클라이언트 |
+| 카탈로그 조회 | `get_api_catalog()` | 지원 데이터셋을 사람이 읽을 수 있는 라벨과 endpoint로 JSON 직렬화 |
+| 디버그 fixture 저장 | `debug_request()` / `save_fixture()` | 실제 응답을 fixture로 저장해 오프라인 replay 테스트에 재사용 |
+
+## 먼저 읽을 문서
+
+| 필요한 정보 | 문서 |
+| --- | --- |
+| 지원 데이터셋 전체 목록과 포함/제외 기준 | [docs/catalog.md](docs/catalog.md) |
+| culture.go.kr 전체 API/파일데이터 조사표(확장 대상) | [docs/culture-go-kr-full-catalog.md](docs/culture-go-kr-full-catalog.md) |
+| 디버그 UI fixture 구조와 replay 테스트 방식 | [docs/debug-fixtures.md](docs/debug-fixtures.md) |
+| 패키지 아키텍처와 모듈 의존 방향 | [docs/architecture.md](docs/architecture.md) |
+| 로컬 개발 환경 구성과 품질 검증 도구 | [docs/dev-environment.md](docs/dev-environment.md) |
+| 의사결정 기록(ADR) | [docs/decisions.md](docs/decisions.md) |
+| 프로젝트 진행 상태 요약 | [docs/resume.md](docs/resume.md) |
+| 작업 일지 | [docs/journal.md](docs/journal.md) |
+| 작업 백로그 | [docs/tasks.md](docs/tasks.md) |
 
 ## 설치
 
@@ -85,7 +112,7 @@ async with McstClient.aio(service_keys={"cafe_bookstores": "..."}) as client:
     print(classes.total_count)
 ```
 
-## 디버그 fixture 저장
+## 디버그 fixture 저장 (예제)
 
 별도 Web UI나 로컬 디버그 도구는 라이브러리에 Streamlit을 직접 의존시키지 않고
 `debug_request()` 결과를 fixture로 저장하는 방식으로 연결합니다. 저장된 fixture는
@@ -110,6 +137,8 @@ path = save_fixture(
 )
 print(path)
 ```
+
+이 예제는 로컬 디버그와 오프라인 회귀 테스트 fixture 생성만을 대상으로 하며, 프로덕션 모니터링이나 배치 수집 용도로는 검증되지 않았습니다.
 
 fixture에는 `input`, `request`, `response`, `parsed`, `processed`, `assertion`, `meta`가
 저장됩니다. `serviceKey`, `Authorization`, `api_key`, token 계열 값은 저장 전에
@@ -165,10 +194,44 @@ API의 키만 요청에 사용합니다.
 - `public_sports_facilities`: 전국공공체육시설 현황
 - `marathon_events`: 국내마라톤대회 정보
 
-## 라이브 테스트
+## 검증
 
 ```bash
-pytest -m live
+python -m pytest
+python -m ruff check .
+python -m mypy src/mcst
+```
+
+### 라이브 테스트
+
+```bash
+python -m pytest -m live
 ```
 
 현재 네트워크에서 `api.kcisa.kr` DNS가 막혀 있거나, 서비스키가 ODCloud에 등록되어 있지 않으면 해당 live test는 실패 대신 skip 처리합니다. 일반 단위 테스트는 외부 서비스를 호출하지 않습니다.
+
+## 데이터/외부 API 출처
+
+- [문화공공데이터광장(culture.go.kr)](https://www.culture.go.kr/data/) — OpenAPI 및 파일데이터
+- [한국문화정보원(KCISA) OpenAPI](https://www.kcisa.kr/) — `api.kcisa.kr`
+- [공공데이터포털(data.go.kr)](https://www.data.go.kr/) — ODCloud 자동변환 API 및 파일데이터
+
+## 디렉터리 개요
+
+| 경로 | 설명 |
+| --- | --- |
+| `src/mcst/` | 라이브러리 소스 코드 (catalog, HTTP 엔진, 클라이언트, 모델, 예외) |
+| `tests/` | pytest 테스트 스위트 (오프라인 replay 테스트 + `@pytest.mark.live`) |
+| `docs/` | 설계, 카탈로그, 의사결정 기록(ADR), 작업 일지 |
+| `debug-ui/` | 로컬 Streamlit 디버그 UI (라이브러리 본체는 미의존) |
+
+## 문서/기여 규칙
+
+- 모든 문서는 한글로 작성합니다. 코드 식별자, 명령어, URL, 환경 변수명, 공식 데이터셋명 등 원문 유지가 필요한 값만 예외입니다.
+- 공개 API 또는 지원 카탈로그가 바뀌면 같은 패치에서 관련 문서(`README.md`, `docs/catalog.md`)와 테스트를 함께 갱신합니다.
+- 작업 전 [AGENTS.md](AGENTS.md)의 범위 규칙과 DO NOT 목록을 확인합니다.
+- API 키는 커밋, 로그, 예외 메시지, 문서, 테스트 출력 어디에도 노출하지 않습니다.
+
+## 법적 고지
+
+이 저장소의 라이선스(GPL-3.0-or-later, [LICENSE](LICENSE))는 이 저장소에 포함된 코드에만 적용됩니다. 이 라이브러리가 감싸는 문화체육관광부·KCISA·공공데이터포털의 데이터와 API는 각 제공기관의 이용약관과 라이선스를 따르며, 이 프로젝트는 해당 데이터의 정확성·최신성이나 API의 가용성에 대해 어떠한 법적 효력이나 보증도 제공하지 않습니다. 실제 서비스에 사용하기 전에 제공기관의 활용 신청 절차와 이용약관을 직접 확인하십시오.
