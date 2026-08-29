@@ -168,7 +168,7 @@ def test_culture_client_exposes_used_bookstores_method():
 
     client.used_bookstores(num_of_rows=1)
 
-    assert session.calls[0][0] == "http://api.kcisa.kr/API_CNV_045/request"
+    assert session.calls[0][0] == "https://api.kcisa.kr/API_CNV_045/request"
     assert session.calls[0][1]["numOfRows"] == 1
 
 

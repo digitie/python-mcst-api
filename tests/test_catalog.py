@@ -27,7 +27,7 @@ def test_open_api_entries_have_kcisa_endpoints():
         assert entry.kind == DatasetKind.KCISA_OPEN_API
         assert entry.endpoint_url is not None
         assert entry.endpoint_url.startswith(
-            ("https://api.kcisa.kr/openapi/", "http://api.kcisa.kr/")
+            ("https://api.kcisa.kr/openapi/", "https://api.kcisa.kr/")
         )
 
 
@@ -47,7 +47,7 @@ def test_get_api_catalog_returns_human_readable_labels():
     assert cafe["label"] == "한국문화정보원_카페가 있는 서점데이터 (cafe_bookstores)"
     assert cafe["endpoint_url"] == "https://api.kcisa.kr/openapi/API_CIA_090/request"
     assert used["title"] == "한국문화정보원_전국 중고서점 및 운영정보"
-    assert used["endpoint_url"] == "http://api.kcisa.kr/API_CNV_045/request"
+    assert used["endpoint_url"] == "https://api.kcisa.kr/API_CNV_045/request"
 
 
 def test_used_bookstore_csv_is_registered_as_file_download_dataset():

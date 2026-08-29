@@ -27,6 +27,7 @@ from .exceptions import (
     McstNetworkError,
     McstNoDataError,
     McstParseError,
+    McstRateLimitError,
     McstRequestError,
     McstServerError,
 )
@@ -60,6 +61,7 @@ __all__ = [
     "McstNetworkError",
     "McstNoDataError",
     "McstParseError",
+    "McstRateLimitError",
     "McstRequestError",
     "McstServerError",
     "Page",

@@ -9,6 +9,7 @@ data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를 요구합니다. cult
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from types import TracebackType
 from typing import Any
@@ -16,16 +17,28 @@ from typing import Any
 from ._http import AsyncKcisaHttp, AsyncSessionLike, KcisaHttp, SessionLike
 from .catalog import CULTURE_OPEN_APIS, CatalogEntry, DatasetKind, get_dataset
 from .debug import DebugRun, error_to_dict, processed_page
-from .exceptions import McstAuthError, McstRequestError
+from .exceptions import McstAuthError, McstNoDataError, McstRequestError
 from .models import CultureRecord, Page
 
+# api.kcisa.kr는 data.go.kr 발급 키가 아닌 KCISA 전용 키를 요구하므로
+# KCISA_SERVICE_KEY를 우선 사용하고, DATA_GO_KR_SERVICE_KEY는 fallback으로만
+# 사용한다(대부분의 경우 인증 실패).
 DEFAULT_ENV_NAMES = (
+    "KCISA_SERVICE_KEY",
     "DATA_GO_KR_SERVICE_KEY",
 )
 
+_DEFAULT_MAX_PAGES = 1000
+
 
 class CultureOpenApiClient:
-    """culture.go.kr의 선별된 KCISA OpenAPI 엔드포인트 클라이언트입니다."""
+    """culture.go.kr의 선별된 KCISA OpenAPI 엔드포인트 클라이언트입니다.
+
+    주의: `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를
+    요구합니다. `service_key`/`KCISA_SERVICE_KEY`로 KCISA 키를 전달하세요;
+    `DATA_GO_KR_SERVICE_KEY`는 fallback으로만 사용되며 대부분 인증에
+    실패합니다.
+    """
 
     def __init__(
         self,
@@ -46,7 +59,19 @@ class CultureOpenApiClient:
             session=session,
         )
         self.max_rps = max_rps
+        self._min_request_interval = 1.0 / max_rps if max_rps > 0 else 0.0
+        self._next_request_at = 0.0
         self.closed = False
+
+    def _throttle(self) -> None:
+        if self._min_request_interval <= 0:
+            return
+        now = time.monotonic()
+        wait_for = self._next_request_at - now
+        if wait_for > 0:
+            time.sleep(wait_for)
+            now = time.monotonic()
+        self._next_request_at = now + self._min_request_interval
 
     def __enter__(self) -> CultureOpenApiClient:
         return self
@@ -86,11 +111,18 @@ class CultureOpenApiClient:
     @classmethod
     def from_env(
         cls,
-        name: str = "DATA_GO_KR_SERVICE_KEY",
+        name: str = "KCISA_SERVICE_KEY",
         *,
-        fallback_names: tuple[str, ...] = (),
+        fallback_names: tuple[str, ...] = ("DATA_GO_KR_SERVICE_KEY",),
         **kwargs: Any,
     ) -> CultureOpenApiClient:
+        """환경변수에서 서비스키를 읽어 클라이언트를 생성합니다.
+
+        `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 키가 필요하므로
+        기본으로 `KCISA_SERVICE_KEY`를 읽습니다. `DATA_GO_KR_SERVICE_KEY`는
+        fallback으로만 사용되며 대부분 인증에 실패합니다.
+        """
+
         service_key = _clean_service_key(os.getenv(name)) or _first_env(fallback_names)
         return cls(service_key=service_key, **kwargs)
 
@@ -126,6 +158,7 @@ class CultureOpenApiClient:
             raise McstRequestError(f"{entry.slug} does not have an endpoint URL")
         _validate_page(page_no=page_no, num_of_rows=num_of_rows)
         service_key = self._require_service_key(entry)
+        self._throttle()
         payload = self._http.get_page(
             entry.endpoint_url,
             page_no=page_no,
@@ -218,7 +251,7 @@ class CultureOpenApiClient:
         keyword: str | None = None,
         page_no: int = 1,
         num_of_rows: int = 100,
-        max_pages: int | None = None,
+        max_pages: int | None = _DEFAULT_MAX_PAGES,
         max_items: int | None = None,
         params: Mapping[str, Any] | None = None,
     ) -> Iterator[CultureRecord]:
@@ -227,16 +260,24 @@ class CultureOpenApiClient:
         yielded = 0
         current_page = page_no
         seen_pages = 0
+        last_raw_fingerprint: str | None = None
         while True:
-            page = self.request(
-                dataset,
-                keyword=keyword,
-                page_no=current_page,
-                num_of_rows=num_of_rows,
-                params=params,
-            )
+            try:
+                page = self.request(
+                    dataset,
+                    keyword=keyword,
+                    page_no=current_page,
+                    num_of_rows=num_of_rows,
+                    params=params,
+                )
+            except McstNoDataError:
+                return
             if not page.items:
                 return
+            raw_fingerprint = repr(page.raw)
+            if raw_fingerprint == last_raw_fingerprint:
+                return
+            last_raw_fingerprint = raw_fingerprint
             for item in page.items:
                 yield item
                 yielded += 1
@@ -299,7 +340,13 @@ class CultureOpenApiClient:
 
 
 class AsyncCultureOpenApiClient:
-    """culture.go.kr의 선별된 KCISA OpenAPI 비동기 클라이언트입니다."""
+    """culture.go.kr의 선별된 KCISA OpenAPI 비동기 클라이언트입니다.
+
+    주의: `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를
+    요구합니다. `service_key`/`KCISA_SERVICE_KEY`로 KCISA 키를 전달하세요;
+    `DATA_GO_KR_SERVICE_KEY`는 fallback으로만 사용되며 대부분 인증에
+    실패합니다.
+    """
 
     def __init__(
         self,
@@ -461,7 +508,7 @@ class AsyncCultureOpenApiClient:
         keyword: str | None = None,
         page_no: int = 1,
         num_of_rows: int = 100,
-        max_pages: int | None = None,
+        max_pages: int | None = _DEFAULT_MAX_PAGES,
         max_items: int | None = None,
         params: Mapping[str, Any] | None = None,
     ) -> AsyncIterator[CultureRecord]:
@@ -470,16 +517,24 @@ class AsyncCultureOpenApiClient:
         yielded = 0
         current_page = page_no
         seen_pages = 0
+        last_raw_fingerprint: str | None = None
         while True:
-            page = await self.request(
-                dataset,
-                keyword=keyword,
-                page_no=current_page,
-                num_of_rows=num_of_rows,
-                params=params,
-            )
+            try:
+                page = await self.request(
+                    dataset,
+                    keyword=keyword,
+                    page_no=current_page,
+                    num_of_rows=num_of_rows,
+                    params=params,
+                )
+            except McstNoDataError:
+                return
             if not page.items:
                 return
+            raw_fingerprint = repr(page.raw)
+            if raw_fingerprint == last_raw_fingerprint:
+                return
+            last_raw_fingerprint = raw_fingerprint
             for item in page.items:
                 yield item
                 yielded += 1

@@ -9,6 +9,8 @@ import time
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 from xml.etree import ElementTree
@@ -20,7 +22,6 @@ from .debug import redact_sensitive
 from .exceptions import (
     McstAuthError,
     McstNetworkError,
-    McstNoDataError,
     McstParseError,
     McstRateLimitError,
     McstRequestError,
@@ -183,7 +184,7 @@ class HttpClient:
                 _sleep_before_retry(attempt)
                 continue
             if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
-                _sleep_before_retry(attempt)
+                _sleep_before_retry(attempt, _retry_after_seconds(response))
                 continue
             _raise_for_status(response, endpoint=url, service_key=active_service_key)
             return response
@@ -200,8 +201,9 @@ class HttpClient:
         """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
 
         query = without_none(params or {})
-        response = self.get_response(url, query, service_key=service_key, timeout=timeout)
-        return response, _request_data(url, query), _response_data(response)
+        active_service_key = service_key or self.service_key
+        response = self.get_response(url, query, service_key=active_service_key, timeout=timeout)
+        return response, _request_data(url, query), _response_data(response, active_service_key)
 
     def get_bytes(
         self,
@@ -225,7 +227,7 @@ class HttpClient:
         try:
             return response.json()
         except ValueError as exc:
-            text = _redact(response.text[:300], active_service_key)
+            text = _redact(response.text, active_service_key)[:300]
             raise McstParseError(
                 f"response was not valid JSON: {text}",
                 endpoint=url,
@@ -246,10 +248,10 @@ class AsyncHttpClient:
         max_rps: float = 5.0,
     ) -> None:
         self.service_key = service_key
+        self._bucket = TokenBucket(max_rps=max_rps)
         self.session = session or build_async_session()
         self.timeout = timeout
         self.retries = retries
-        self._bucket = TokenBucket(max_rps=max_rps)
         self._owns_session = session is None
 
     async def aclose(self) -> None:
@@ -285,7 +287,7 @@ class AsyncHttpClient:
                 await _async_sleep_before_retry(attempt)
                 continue
             if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
-                await _async_sleep_before_retry(attempt)
+                await _async_sleep_before_retry(attempt, _retry_after_seconds(response))
                 continue
             _raise_for_status(response, endpoint=url, service_key=active_service_key)
             return response
@@ -302,8 +304,11 @@ class AsyncHttpClient:
         """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
 
         query = without_none(params or {})
-        response = await self.get_response(url, query, service_key=service_key, timeout=timeout)
-        return response, _request_data(url, query), _response_data(response)
+        active_service_key = service_key or self.service_key
+        response = await self.get_response(
+            url, query, service_key=active_service_key, timeout=timeout
+        )
+        return response, _request_data(url, query), _response_data(response, active_service_key)
 
     async def get_bytes(
         self,
@@ -329,7 +334,7 @@ class AsyncHttpClient:
         try:
             return response.json()
         except ValueError as exc:
-            text = _redact(response.text[:300], active_service_key)
+            text = _redact(response.text, active_service_key)[:300]
             raise McstParseError(
                 f"response was not valid JSON: {text}",
                 endpoint=url,
@@ -385,7 +390,7 @@ class KcisaHttp(HttpClient):
             service_key=active_service_key,
             timeout=timeout,
         )
-        payload = _decode_payload(response)
+        payload = _decode_payload(response, endpoint_url, active_service_key)
         response_data["body"] = redact_sensitive(payload)
         normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
         _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
@@ -440,7 +445,7 @@ class AsyncKcisaHttp(AsyncHttpClient):
             service_key=active_service_key,
             timeout=timeout,
         )
-        payload = _decode_payload(response)
+        payload = _decode_payload(response, endpoint_url, active_service_key)
         response_data["body"] = redact_sensitive(payload)
         normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
         _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
@@ -595,10 +600,10 @@ def _request_data(url: str, query: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _response_data(response: ResponseLike) -> dict[str, Any]:
+def _response_data(response: ResponseLike, service_key: str | None = None) -> dict[str, Any]:
     return {
         "status_code": response.status_code,
-        "headers": dict(response.headers),
+        "headers": {key: _redact(value, service_key) for key, value in response.headers.items()},
         "body": None,
     }
 
@@ -648,7 +653,7 @@ def _normalized_response(
     page_no: int,
     num_of_rows: int,
 ) -> NormalizedPayload:
-    payload = _decode_payload(response)
+    payload = _decode_payload(response, endpoint_url, service_key)
     normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
     _raise_for_payload_error(normalized.raw, endpoint_url, service_key=service_key)
     return normalized
@@ -668,8 +673,8 @@ def _normalized_odcloud_payload(
     items = _rows_to_tuple(rows, endpoint=url)
     return NormalizedPayload(
         items=items,
-        page_no=to_int_or_none(payload.get("page")) or page_no,
-        num_of_rows=to_int_or_none(payload.get("perPage")) or per_page,
+        page_no=page_no,
+        num_of_rows=per_page,
         total_count=to_int_or_none(payload.get("totalCount")),
         raw=payload,
     )
@@ -685,16 +690,41 @@ def _require_key(service_key: str | None, endpoint: str) -> str:
     )
 
 
-def _sleep_before_retry(attempt: int) -> None:
-    backoff = 0.3 * (2**attempt)
-    jitter = random.uniform(0, 0.1 * backoff)
-    time.sleep(min(backoff + jitter, 4.0))
+def _retry_after_seconds(response: ResponseLike) -> float | None:
+    value = response.headers.get("Retry-After")
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        pass
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if parsed is None:
+        return None
+    now = datetime.now(parsed.tzinfo) if parsed.tzinfo else datetime.now()
+    return max((parsed - now).total_seconds(), 0.0)
 
 
-async def _async_sleep_before_retry(attempt: int) -> None:
+def _sleep_before_retry(attempt: int, retry_after: float | None = None) -> None:
     backoff = 0.3 * (2**attempt)
     jitter = random.uniform(0, 0.1 * backoff)
-    await asyncio.sleep(min(backoff + jitter, 4.0))
+    delay = min(backoff + jitter, 4.0)
+    if retry_after is not None:
+        delay = max(delay, min(retry_after, 60.0))
+    time.sleep(delay)
+
+
+async def _async_sleep_before_retry(attempt: int, retry_after: float | None = None) -> None:
+    backoff = 0.3 * (2**attempt)
+    jitter = random.uniform(0, 0.1 * backoff)
+    delay = min(backoff + jitter, 4.0)
+    if retry_after is not None:
+        delay = max(delay, min(retry_after, 60.0))
+    await asyncio.sleep(delay)
 
 
 def _raise_for_status(
@@ -743,13 +773,12 @@ def _raise_for_status_payload_error(
     service_key: str | None,
 ) -> None:
     try:
-        payload = response.json()
-    except ValueError:
+        payload = _decode_payload(response, endpoint, service_key)
+    except McstParseError:
         return
     if not isinstance(payload, Mapping):
         return
-    code = str(payload.get("code") or payload.get("resultCode") or "").strip()
-    message = str(payload.get("msg") or payload.get("message") or payload.get("resultMsg") or "")
+    code, message = _payload_code_and_message(payload)
     text = _redact(f"HTTP {response.status_code}: {code}: {message}", service_key)
     upper = text.upper()
     if code in {"-4", "-401", "20", "30", "31"} or "SERVICE" in upper or "인증" in text:
@@ -770,11 +799,13 @@ def _raise_for_status_payload_error(
         )
 
 
-def _decode_payload(response: ResponseLike) -> Any:
+def _decode_payload(
+    response: ResponseLike, endpoint: str = "", service_key: str | None = None
+) -> Any:
     content_type = response.headers.get("Content-Type", "").casefold()
     text = response.text.strip()
     if "json" in content_type or text.startswith("{") or text.startswith("["):
-        return _json_payload(response, "", None)
+        return _json_payload(response, endpoint, service_key)
     if text.startswith("<"):
         try:
             root = ElementTree.fromstring(text)
@@ -782,7 +813,7 @@ def _decode_payload(response: ResponseLike) -> Any:
             raise McstParseError("response was not valid XML", failure_kind="parse") from exc
         return _element_to_data(root)
     raise McstParseError(
-        f"unsupported response body from {urlparse(str(response)).netloc}",
+        f"unsupported response body from {urlparse(endpoint).netloc}",
         failure_kind="parse",
     )
 
@@ -791,7 +822,7 @@ def _json_payload(response: ResponseLike, endpoint: str, service_key: str | None
     try:
         return response.json()
     except ValueError as exc:
-        text = _redact(response.text[:300], service_key)
+        text = _redact(response.text, service_key)[:300]
         raise McstParseError(
             f"response was not valid JSON: {text}",
             endpoint=endpoint,
@@ -799,7 +830,12 @@ def _json_payload(response: ResponseLike, endpoint: str, service_key: str | None
         ) from exc
 
 
-def _element_to_data(element: ElementTree.Element) -> Any:
+_MAX_XML_DEPTH = 50
+
+
+def _element_to_data(element: ElementTree.Element, *, depth: int = 0) -> Any:
+    if depth > _MAX_XML_DEPTH:
+        raise McstParseError("XML response nested too deeply", failure_kind="parse")
     children = list(element)
     text = (element.text or "").strip()
     if not children:
@@ -808,13 +844,21 @@ def _element_to_data(element: ElementTree.Element) -> Any:
     grouped: dict[str, list[Any]] = defaultdict(list)
     for child in children:
         tag = child.tag.rsplit("}", 1)[-1]
-        grouped[tag].append(_element_to_data(child))
+        grouped[tag].append(_element_to_data(child, depth=depth + 1))
     data: dict[str, Any] = {}
     for tag, values in grouped.items():
         data[tag] = values[0] if len(values) == 1 else values
     if text:
         data["_text"] = text
     return data
+
+
+def _first_int(*candidates: Any) -> int | None:
+    for candidate in candidates:
+        value = to_int_or_none(candidate)
+        if value is not None:
+            return value
+    return None
 
 
 def _normalize_payload(payload: Any, *, page_no: int, num_of_rows: int) -> NormalizedPayload:
@@ -833,9 +877,9 @@ def _normalize_payload(payload: Any, *, page_no: int, num_of_rows: int) -> Norma
     items = _rows_to_tuple(items_obj, endpoint="")
     return NormalizedPayload(
         items=items,
-        page_no=to_int_or_none(body.get("pageNo") or body.get("page")) or page_no,
-        num_of_rows=to_int_or_none(body.get("numOfRows") or body.get("perPage")) or num_of_rows,
-        total_count=to_int_or_none(body.get("totalCount") or body.get("totalCnt")),
+        page_no=page_no,
+        num_of_rows=num_of_rows,
+        total_count=_first_int(body.get("totalCount"), body.get("totalCnt")),
         raw=payload,
     )
 
@@ -854,9 +898,7 @@ def _rows_to_tuple(rows: Any, *, endpoint: str) -> tuple[dict[str, Any], ...]:
     )
 
 
-def _raise_for_payload_error(payload: Any, endpoint: str, *, service_key: str | None) -> None:
-    if not isinstance(payload, Mapping):
-        return
+def _payload_code_and_message(payload: Mapping[str, Any]) -> tuple[str, str]:
     code = str(
         payload.get("code")
         or payload.get("resultCode")
@@ -872,6 +914,13 @@ def _raise_for_payload_error(payload: Any, endpoint: str, *, service_key: str | 
         or _nested(payload, "header", "resultMsg")
         or ""
     ).strip()
+    return code, message
+
+
+def _raise_for_payload_error(payload: Any, endpoint: str, *, service_key: str | None) -> None:
+    if not isinstance(payload, Mapping):
+        return
+    code, message = _payload_code_and_message(payload)
     if not code or code in {"0", "00", "0000", "NORMAL_CODE", "INFO-000"}:
         return
     text = _redact(f"{code}: {message}", service_key)
@@ -879,7 +928,7 @@ def _raise_for_payload_error(payload: Any, endpoint: str, *, service_key: str | 
     if code in {"-4", "-401", "20", "30", "31"} or "SERVICE" in upper or "인증" in text:
         raise McstAuthError(text, result_code=code, endpoint=endpoint, failure_kind="auth")
     if code in {"03", "INFO-200"} or "NO DATA" in upper:
-        raise McstNoDataError(text, result_code=code, endpoint=endpoint, failure_kind="no_data")
+        return
     if code in {"22"} or "LIMIT" in upper or "QUOTA" in upper:
         raise McstRateLimitError(
             text,

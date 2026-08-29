@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from .exceptions import McstRequestError
+
 
 class SourcePortal(StrEnum):
     CULTURE_GO_KR = "culture.go.kr"
@@ -162,7 +164,7 @@ CULTURE_OPEN_APIS: dict[str, CatalogEntry] = {
         kind=DatasetKind.KCISA_OPEN_API,
         source=SourcePortal.CULTURE_GO_KR,
         detail_url="https://www.culture.go.kr/data/openapi/openapiView.do?id=547&gubun=A",
-        endpoint_url="http://api.kcisa.kr/API_CNV_045/request",
+        endpoint_url="https://api.kcisa.kr/API_CNV_045/request",
         update_cycle="연간",
         tags=("leisure", "bookstore", "used", "operation", "poi"),
         notes=(
@@ -723,4 +725,4 @@ def get_dataset(slug: str) -> CatalogEntry:
         return ALL_DATASETS[slug]
     except KeyError as exc:
         known = ", ".join(sorted(ALL_DATASETS))
-        raise KeyError(f"unknown dataset slug {slug!r}; known slugs: {known}") from exc
+        raise McstRequestError(f"unknown dataset slug {slug!r}; known slugs: {known}") from exc

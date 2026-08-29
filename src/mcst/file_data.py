@@ -18,7 +18,9 @@ from __future__ import annotations
 import asyncio
 import csv
 import html as html_module
+import io
 import re
+import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 from types import TracebackType
@@ -56,7 +58,14 @@ def extract_download_url(page_html: str, page_url: str) -> str | None:
     if match is None:
         return None
     raw = html_module.unescape(match.group(0))
-    return str(httpx.URL(urljoin(page_url, raw)))
+    try:
+        return str(httpx.URL(urljoin(page_url, raw)))
+    except httpx.InvalidURL as exc:
+        raise McstParseError(
+            f"could not parse extracted download link {raw!r} from {page_url}",
+            endpoint=page_url,
+            failure_kind="parse",
+        ) from exc
 
 
 class FileDataClient:
@@ -93,7 +102,8 @@ class FileDataClient:
         return tuple(
             entry
             for entry in ALL_DATASETS.values()
-            if entry.kind in _DOWNLOADABLE_KINDS or entry.file_url
+            if entry.kind != DatasetKind.LINK
+            and (entry.kind in _DOWNLOADABLE_KINDS or entry.file_url)
         )
 
     def resolve_file_url(self, dataset: str | CatalogEntry) -> str:
@@ -104,6 +114,8 @@ class FileDataClient:
         """
 
         entry = _resolve_download(dataset)
+        if entry.kind == DatasetKind.LINK:
+            raise McstRequestError(f"{entry.slug} is a link entry, not a downloadable file")
         if entry.kind in _DOWNLOADABLE_KINDS:
             page = self._http.get_response(entry.detail_url)
             url = extract_download_url(page.text, entry.detail_url)
@@ -214,6 +226,7 @@ class FileDataClient:
         if entry.kind == DatasetKind.LINK:
             raise McstRequestError(f"{entry.slug} is a link entry, not a direct CSV")
         raw = self.download(entry)
+        raw = _extract_csv_bytes(raw, entry.slug)
         text = _decode_csv_bytes(raw, encoding)
         reader = csv.DictReader(text.splitlines())
         for row in reader:
@@ -260,7 +273,8 @@ class AsyncFileDataClient:
         return tuple(
             entry
             for entry in ALL_DATASETS.values()
-            if entry.kind in _DOWNLOADABLE_KINDS or entry.file_url
+            if entry.kind != DatasetKind.LINK
+            and (entry.kind in _DOWNLOADABLE_KINDS or entry.file_url)
         )
 
     async def resolve_file_url(self, dataset: str | CatalogEntry) -> str:
@@ -271,6 +285,8 @@ class AsyncFileDataClient:
         """
 
         entry = _resolve_download(dataset)
+        if entry.kind == DatasetKind.LINK:
+            raise McstRequestError(f"{entry.slug} is a link entry, not a downloadable file")
         if entry.kind in _DOWNLOADABLE_KINDS:
             page = await self._http.get_response(entry.detail_url)
             url = extract_download_url(page.text, entry.detail_url)
@@ -372,6 +388,7 @@ class AsyncFileDataClient:
         if entry.kind == DatasetKind.LINK:
             raise McstRequestError(f"{entry.slug} is a link entry, not a direct CSV")
         raw = await self.download(entry)
+        raw = _extract_csv_bytes(raw, entry.slug)
         text = _decode_csv_bytes(raw, encoding)
         return [dict(row) for row in csv.DictReader(text.splitlines())]
 
@@ -392,6 +409,28 @@ def _fallback_file_url(entry: CatalogEntry) -> str:
     )
 
 
+_ZIP_MAGIC = b"PK\x03\x04"
+
+
+def _extract_csv_bytes(data: bytes, slug: str) -> bytes:
+    if not data.startswith(_ZIP_MAGIC):
+        return data
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+            if not csv_names:
+                raise McstParseError(
+                    f"{slug}: downloaded zip archive has no CSV member",
+                    failure_kind="parse",
+                )
+            return archive.read(csv_names[0])
+    except zipfile.BadZipFile as exc:
+        raise McstParseError(
+            f"{slug}: downloaded file looked like a zip archive but could not be read",
+            failure_kind="parse",
+        ) from exc
+
+
 def _decode_csv_bytes(data: bytes, encoding: str | None) -> str:
     encodings = (encoding,) if encoding else ("utf-8-sig", "utf-8", "cp949", "euc-kr")
     last_error: UnicodeDecodeError | None = None
@@ -403,7 +442,10 @@ def _decode_csv_bytes(data: bytes, encoding: str | None) -> str:
         except UnicodeDecodeError as exc:
             last_error = exc
     if last_error is not None:
-        raise last_error
+        raise McstParseError(
+            f"could not decode CSV bytes with any of {encodings}",
+            failure_kind="parse",
+        ) from last_error
     return data.decode()
 
 

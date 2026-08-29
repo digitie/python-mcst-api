@@ -9,7 +9,7 @@ ODCloud 식별자(`public_data_pk`)가 있는 항목에만 사용하며 서비�
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 from types import TracebackType
 from typing import Any
 
@@ -199,8 +199,59 @@ class DataGoFileApiClient:
                 error=error_to_dict(exc),
             )
 
+    def iter_items(
+        self,
+        dataset: str | CatalogEntry,
+        *,
+        page_no: int = 1,
+        per_page: int = 100,
+        max_pages: int | None = None,
+        max_items: int | None = None,
+        params: Mapping[str, Any] | None = None,
+    ) -> Iterator[RawRecord]:
+        """여러 페이지의 레코드를 순회합니다."""
+
+        yielded = 0
+        current_page = page_no
+        seen_pages = 0
+        while True:
+            page = self.request(
+                dataset,
+                page_no=current_page,
+                per_page=per_page,
+                params=params,
+            )
+            if not page.items:
+                return
+            for item in page.items:
+                yield item
+                yielded += 1
+                if max_items is not None and yielded >= max_items:
+                    return
+            seen_pages += 1
+            if max_pages is not None and seen_pages >= max_pages:
+                return
+            if page.total_count is not None and yielded >= page.total_count:
+                return
+            current_page += 1
+
     def public_libraries(self, **kwargs: Any) -> Page[RawRecord]:
         return self.request("public_libraries", **kwargs)
+
+    def tourism_lodging_status(self, **kwargs: Any) -> Page[RawRecord]:
+        return self.request("tourism_lodging_status", **kwargs)
+
+    def hotels_status(self, **kwargs: Any) -> Page[RawRecord]:
+        return self.request("hotels_status", **kwargs)
+
+    def public_sports_facilities(self, **kwargs: Any) -> Page[RawRecord]:
+        return self.request("public_sports_facilities", **kwargs)
+
+    def registered_sports_businesses(self, **kwargs: Any) -> Page[RawRecord]:
+        return self.request("registered_sports_businesses", **kwargs)
+
+    def marathon_events(self, **kwargs: Any) -> Page[RawRecord]:
+        return self.request("marathon_events", **kwargs)
 
     def _require_service_key(self, entry: CatalogEntry) -> str:
         service_key = self.service_key_for(entry)
@@ -370,8 +421,59 @@ class AsyncDataGoFileApiClient:
                 error=error_to_dict(exc),
             )
 
+    async def iter_items(
+        self,
+        dataset: str | CatalogEntry,
+        *,
+        page_no: int = 1,
+        per_page: int = 100,
+        max_pages: int | None = None,
+        max_items: int | None = None,
+        params: Mapping[str, Any] | None = None,
+    ) -> AsyncIterator[RawRecord]:
+        """여러 페이지의 레코드를 비동기로 순회합니다."""
+
+        yielded = 0
+        current_page = page_no
+        seen_pages = 0
+        while True:
+            page = await self.request(
+                dataset,
+                page_no=current_page,
+                per_page=per_page,
+                params=params,
+            )
+            if not page.items:
+                return
+            for item in page.items:
+                yield item
+                yielded += 1
+                if max_items is not None and yielded >= max_items:
+                    return
+            seen_pages += 1
+            if max_pages is not None and seen_pages >= max_pages:
+                return
+            if page.total_count is not None and yielded >= page.total_count:
+                return
+            current_page += 1
+
     async def public_libraries(self, **kwargs: Any) -> Page[RawRecord]:
         return await self.request("public_libraries", **kwargs)
+
+    async def tourism_lodging_status(self, **kwargs: Any) -> Page[RawRecord]:
+        return await self.request("tourism_lodging_status", **kwargs)
+
+    async def hotels_status(self, **kwargs: Any) -> Page[RawRecord]:
+        return await self.request("hotels_status", **kwargs)
+
+    async def public_sports_facilities(self, **kwargs: Any) -> Page[RawRecord]:
+        return await self.request("public_sports_facilities", **kwargs)
+
+    async def registered_sports_businesses(self, **kwargs: Any) -> Page[RawRecord]:
+        return await self.request("registered_sports_businesses", **kwargs)
+
+    async def marathon_events(self, **kwargs: Any) -> Page[RawRecord]:
+        return await self.request("marathon_events", **kwargs)
 
     def _require_service_key(self, entry: CatalogEntry) -> str:
         service_key = self.service_key_for(entry)
