@@ -32,11 +32,12 @@ KCISA OpenAPI와 공공데이터포털 자동변환 API는 서비스키가 필�
 $env:DATA_GO_KR_SERVICE_KEY="..."
 ```
 
-대체 환경 변수도 인식합니다.
+`api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 키가 필요하므로,
+문체부/KCISA API는 `KCISA_SERVICE_KEY`를 우선 읽고 `DATA_GO_KR_SERVICE_KEY`는
+fallback으로만 사용합니다(대부분 인증에 실패합니다).
 
-- `DATA_GO_KR_SERVICE_KEY`
-- `DATA_GO_KR_SERVICE_KEY`
-- `DATA_GO_KR_SERVICE_KEY`
+- `KCISA_SERVICE_KEY` (우선)
+- `DATA_GO_KR_SERVICE_KEY` (fallback)
 
 ## 빠른 사용
 

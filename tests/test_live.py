@@ -12,11 +12,11 @@ pytestmark = pytest.mark.live
 
 
 def _service_key() -> str:
-    for name in ("DATA_GO_KR_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY"):
+    for name in ("KCISA_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY"):
         value = os.getenv(name)
         if value:
             return value.strip().strip('"').strip("'")
-    pytest.skip("DATA_GO_KR_SERVICE_KEY is not set")
+    pytest.skip("KCISA_SERVICE_KEY or DATA_GO_KR_SERVICE_KEY is not set")
     raise AssertionError("unreachable")
 
 
