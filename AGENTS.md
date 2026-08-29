@@ -1,67 +1,56 @@
 # 에이전트 작업 지침
 
+## 목표
+
+이 저장소는 문화체육관광부 및 산하기관의 일부 공공데이터/API(여행, 여가, 숙박, 문화시설, 도서관 위치/운영)를 감싸는 작은 타입 지정 Python 패키지입니다. `mcst.catalog`를 지원 데이터셋의 단일 기준으로 삼아, downstream이 직접 사용할 수 있는 안정된 typed client와 Pydantic 모델을 제공합니다. 변경은 작게 유지하고, 카탈로그 중심으로 구현하며, 테스트와 문서를 함께 갱신합니다.
+
+## Think Before Coding
+
+- 공개 동작을 바꾸기 전에 `README.md`, `docs/catalog.md`, `src/mcst/catalog.py`를 먼저 읽어 대상 항목과 기존 계약을 확인합니다.
+- 외부 API(culture.go.kr, KCISA, data.go.kr) 관련 작업은 새 wrapper/adapter/gateway가 정말 필요한지부터 판단한 뒤 진행합니다.
+
+## Simplicity First
+
+- 불필요한 얇은 wrapper, 단순 전달용 함수/클래스, 장기 호환 alias, 임시 facade는 만들지 않습니다.
+- 단순 재포장을 위한 의존성 추가는 피하고, 정확성·유지보수성·공개 API에 직접적 이득이 있을 때만 새 의존성을 도입합니다.
+
+## Surgical Changes
+
+- 최소 수정을 기본값으로 하되, 라이선스·의존성·저장소 범위에 맞는 검증된 외부 구현이 있으면 최소 수정과 충돌하더라도 그 구현을 직접 적용하는 편을 우선합니다.
+- 하나의 데이터셋 래퍼를 되돌려도 관계없는 카탈로그·문서 작업이 함께 사라지지 않도록 커밋을 작게 유지합니다.
+
+## Goal-Driven Execution
+
+- downstream이 직접 사용할 안정된 public client, typed model, enum, helper 제공을 목표로 삼습니다. 필요한 endpoint·pagination·cursor·exception·raw payload 계약이 부족하면 이 저장소의 public API를 먼저 안정화합니다.
+- 공개 API 또는 지원 카탈로그가 바뀌면 같은 패치에서 관련 문서(`README.md`, `docs/catalog.md`)와 테스트를 함께 갱신합니다.
+
+## Practical Bias
+
+- fixture로 쉽게 검증 가능한 동작은 오프라인 테스트를 먼저 추가하거나 갱신하고, 실제 서비스 검증은 `pytest -m live`로 보완합니다.
+- 한국 공공 API는 HTTP 200으로 애플리케이션 오류를 반환하는 일이 많으므로, 항상 본문 수준의 결과 코드를 확인합니다.
+- 이 Windows 환경에서는 `rg.exe`가 `Access is denied`로 실행되지 않을 수 있습니다. 그런 경우 `Get-ChildItem -Recurse -File`과 `Select-String`으로 우회합니다. 문서는 UTF-8로 저장되어 있지만 PowerShell 기본 출력 인코딩 때문에 한글이 깨져 보일 수 있으므로, 파일을 읽을 때는 `Get-Content -Encoding UTF8`을 사용하고 Python 등으로 한글을 출력할 때는 필요하면 `$OutputEncoding`과 `[Console]::OutputEncoding`을 UTF-8로 먼저 지정합니다.
+
 ## 문서 언어 정책
 
-이 저장소의 모든 Markdown/RST 문서는 한글로 작성합니다. 공식 API 필드명, 코드 식별자, 명령어, URL, provider 원문처럼 그대로 보존해야 하는 값만 영어를 유지합니다. 새 문서나 기존 문서를 수정할 때도 이 규칙을 우선합니다.
+이 저장소의 모든 Markdown/RST 문서(README, `docs/`, `AGENTS.md`, 테스트 설명, changelog 포함)와 Python 코드 안의 주석·docstring은 한글로 작성합니다. 코드 식별자, 명령어, URL, 환경 변수명, 공식 데이터셋명, API 필드명처럼 원문 유지가 필요한 값과 외부 자료에서 가져온 공식 명칭은 임의로 번역하지 않고 그대로 둡니다. 새 문서나 기존 문서를 수정할 때도 이 규칙을 우선합니다.
 
-이 저장소는 문화체육관광부 및 산하기관의 일부 공공데이터/API를 다루는
-작은 타입 지정 Python 패키지입니다. 변경은 작게 유지하고, 카탈로그 중심으로
-구현하며, 테스트와 문서를 함께 갱신합니다.
+## 식별자 표
 
-## 범위 규칙
+| 이름 | 값 |
+| --- | --- |
+| PyPI/배포 패키지 이름 | `python-mcst-api` |
+| Python import 이름 | `mcst` |
+| GitHub 저장소 | `digitie/python-mcst-api` |
+| 서비스키 환경 변수 (우선) | `KCISA_SERVICE_KEY` |
+| 서비스키 환경 변수 (fallback) | `DATA_GO_KR_SERVICE_KEY` |
 
-- 문화체육관광부 또는 문화체육관광부 산하기관/유관기관 제공 데이터만 포함합니다.
-- 한국관광공사 제공 서비스와 데이터는 관광 관련이어도 모두 제외합니다.
-- 행정안전부, 지자체, 그 밖의 비문체부 공공기관 자료는 카탈로그에 명시적으로
-  포함된 경우가 아니면 제외합니다.
-- 여행, 여가, 숙박, 문화시설, 행사, 위치/운영 정보에 해당하는 활용 사례만
-  구현합니다.
-- 도서관은 위치 또는 운영 정보만 포함합니다. 소장자료, 서지, ISBN,
-  국가자료종합목록, 추천도서, 장서 검색 API는 제외합니다.
-- `mcst.catalog`를 지원 데이터셋의 단일 기준으로 봅니다.
+## 절대 하지 말 것 (DO NOT)
 
-## 문서 언어 규칙
-
-- README, `docs/`, `AGENTS.md`, 테스트 설명, changelog 등 모든 문서는 한글로
-  작성합니다.
-- Python 코드 안의 주석과 docstring도 한글로 작성합니다.
-- 코드 식별자, 명령어, URL, 환경 변수명, 공식 데이터셋명, API 필드명처럼 원문
-  유지가 필요한 값은 그대로 둡니다.
-- 외부 자료에서 가져온 공식 명칭은 임의로 번역하지 않습니다.
-
-## 구현 방향
-
-- 외부 API 관련 작업은 다른 구현보다 먼저 wrapper/adapter/gateway 지양 원칙을
-  확인하고 문서/코드에 반영한 뒤 진행합니다.
-- downstream이 직접 사용할 안정된 public client, typed model, enum, helper를
-  제공합니다.
-- 불필요한 얇은 wrapper나 단순 전달용 함수/클래스, 장기 호환 alias, 임시
-  facade는 만들지 않습니다. 기존 코드의 책임 경계가 충분하면 그 경계를 그대로
-  사용합니다.
-- downstream에서 필요한 endpoint, pagination, cursor, exception, raw payload
-  계약이 부족하면 이 저장소의 public API를 먼저 안정화합니다.
-- 최소 수정 원칙은 기본값이지만, 다른 라이브러리에 이미 검증된 구현이 있고
-  라이선스, 의존성, 저장소 범위에 맞는다면 최소 수정과 충돌하더라도 그 구현을
-  직접 적용하는 방향을 우선합니다.
-- 외부 라이브러리 구현을 참고하거나 가져올 때는 출처, 버전, 적용 이유를 변경
-  설명이나 필요한 문서에 남기고, 공개 동작이 바뀌면 테스트와 관련 문서를 함께
-  갱신합니다.
-- 단순 재포장을 위한 의존성 추가는 피합니다. 새 의존성은 정확성, 유지보수성,
-  공개 API 영향이 직접적인 이득을 줄 때만 도입합니다.
-
-## 로컬 환경 주의
-
-- 이 Windows 환경에서는 `rg.exe`가 `Access is denied`로 실행되지 않을 수
-  있습니다. 그런 경우 같은 내용을 `Get-ChildItem -Recurse -File`과
-  `Select-String`으로 우회합니다.
-- 문서는 UTF-8로 저장되어 있지만 PowerShell 기본 출력 인코딩 때문에 한글이
-  깨져 보일 수 있습니다. 파일을 읽을 때는 `Get-Content -Encoding UTF8`을
-  사용하고, Python 등으로 한글을 출력할 때는 필요하면 다음을 먼저 설정합니다.
-
-```powershell
-$OutputEncoding = [System.Text.UTF8Encoding]::new()
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-```
+- 한국관광공사 제공 서비스/데이터, 행정안전부·지자체 등 비문체부 공공기관 자료는 카탈로그에 명시적으로 포함된 경우가 아니면 추가하지 않습니다. 도서관은 위치/운영 정보만 포함하고 소장자료·서지·ISBN·국가자료종합목록·추천도서·장서 검색 API는 포함하지 않습니다.
+- 불필요한 얇은 wrapper/adapter/gateway, 단순 전달용 함수/클래스, 장기 호환 alias, 임시 facade는 만들지 않습니다. 기존 코드의 책임 경계가 충분하면 그 경계를 그대로 사용합니다.
+- API 키를 커밋하거나 로그, 예외 메시지, `repr` 출력, 문서, 테스트 출력에 노출하지 않습니다.
+- `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `__pycache__`, `.coverage`, 빌드 산출물, 가상환경을 커밋에 포함하지 않습니다.
+- 일반(비-live) 테스트에서 네트워크를 호출하지 않습니다 — HTTP 동작은 fake session 또는 fixture로 검증합니다.
 
 ## 공개 동작을 바꾸기 전에
 
@@ -92,15 +81,13 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 ## API 키 정책
 
-- API 키를 커밋하거나 로그, 실패 메시지, 문서, 테스트 출력에 노출하지 않습니다.
 - TripMate live 확인에는 가능한 경우 `DATA_GO_KR_SERVICE_KEY`를 사용합니다.
-- 기존 클라이언트가 지원하는 범위에서 `DATA_GO_KR_SERVICE_KEY`,
-  `DATA_GO_KR_SERVICE_KEY`도 지원합니다.
-- 비밀값은 예외 메시지와 `repr` 출력에 들어가지 않게 합니다.
+- `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 키가 필요하므로,
+  문체부/KCISA API는 `KCISA_SERVICE_KEY`를 우선 읽고 `DATA_GO_KR_SERVICE_KEY`는
+  fallback으로만 사용합니다(대부분 인증에 실패합니다).
 
 ## 테스트 정책
 
-- 일반 테스트는 네트워크를 호출하지 않습니다.
 - HTTP 동작은 fake session 또는 fixture로 검증합니다.
 - 디버그 UI가 저장한 fixture는 `tests/fixtures/**/*.json`에 두고,
   `tests/test_generated_fixtures.py`에서 replay 방식으로 검증합니다.
@@ -111,8 +98,6 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 - 현재 환경에서 `api.kcisa.kr` DNS를 해석할 수 없으면 KCISA live 테스트를
   명확한 이유와 함께 skip 처리합니다.
 - 새 파서를 추가할 때는 단일 객체 응답과 리스트 응답을 모두 테스트합니다.
-- 한국 공공 API는 HTTP 200으로 애플리케이션 오류를 반환하는 일이 많으므로,
-  항상 본문 수준의 결과 코드를 확인합니다.
 
 ## 검증 명령
 
@@ -140,19 +125,6 @@ python -m pytest -m live
 
 ## 커밋 위생
 
-- `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `__pycache__`, `.coverage`,
-  빌드 산출물, 가상환경을 포함하지 않습니다.
 - 하나의 데이터셋 래퍼를 되돌려도 관계없는 카탈로그나 문서 작업이 함께
   사라지지 않도록 커밋을 작게 유지합니다.
 - 카탈로그 항목의 한국어 제공기관명과 공식 데이터셋명은 정확히 보존합니다.
-
-## 작업 후 의무사항 (maplibre-vworld-js 스타일)
-
-에이전트는 작업을 마칠 때 다음 사항을 준수하여 프로젝트 연속성을 유지합니다:
-
-1. `docs/journal.md`에 항목 추가 (날짜·요약·결정·다음 작업, 역시간순)
-2. `docs/tasks.md`의 현재 작업 상태 업데이트 (새 부채 발견 시 추가)
-3. 주요 아키텍처/설계 결정이 있었다면 `docs/decisions.md`에 ADR(Architecture Decision Record) 추가
-4. 사용자 가시 변경이면 `CHANGELOG.md` 갱신
-5. MCP 설정 파일들(`antigravity.json`, `claude.json`, `codex.json`, `.gemini/`, `.claude/`, `.codex/`)은 프로젝트 루트에 유지하며, 에이전트 간 일관된 환경을 보장합니다.
-

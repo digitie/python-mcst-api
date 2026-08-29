@@ -140,7 +140,7 @@ ADR-1을 통해 에이전트별 고유 worktree 경로와 스타일을 도입하
 
 ---
 
-## ADR-3: boto3 동적 로딩을 활용한 S3 호환 RustFS 저장 API 신설
+## ADR-4: boto3 동적 로딩을 활용한 S3 호환 RustFS 저장 API 신설
 
 - 상태: accepted
 - 날짜: 2026-06-07
