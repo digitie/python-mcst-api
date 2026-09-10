@@ -145,8 +145,7 @@ class FileDataClient:
         if target.exists() and not overwrite:
             raise FileExistsError(str(target))
         data = self.download(dataset)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        _write_file(target, data)
         return target
 
     def save_rustfs(
@@ -185,8 +184,7 @@ class FileDataClient:
         data = self.download(dataset)
 
         # 2. 로컬 저장
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        _write_file(target, data)
 
         # 3. RustFS (S3) 저장
         key = object_key or target.name
@@ -316,8 +314,7 @@ class AsyncFileDataClient:
         if target.exists() and not overwrite:
             raise FileExistsError(str(target))
         data = await self.download(dataset)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        await asyncio.to_thread(_write_file, target, data)
         return target
 
     async def save_rustfs(
@@ -350,14 +347,13 @@ class AsyncFileDataClient:
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
         )
-        s3_client = _get_boto3_s3_client(creds)
+        s3_client = await asyncio.to_thread(_get_boto3_s3_client, creds)
 
         # 1. 다운로드
         data = await self.download(dataset)
 
         # 2. 로컬 저장
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        await asyncio.to_thread(_write_file, target, data)
 
         # 3. RustFS (S3) 저장
         key = object_key or target.name
@@ -447,6 +443,16 @@ def _decode_csv_bytes(data: bytes, encoding: str | None) -> str:
             failure_kind="parse",
         ) from last_error
     return data.decode()
+
+
+def _write_file(target: Path, data: bytes) -> None:
+    """`target`의 부모 디렉터리를 만들고 `data`를 씁니다.
+
+    동기 블로킹 파일시스템 호출이므로, 비동기 호출부는 이벤트 루프를 막지
+    않도록 반드시 `asyncio.to_thread(_write_file, ...)`로 감싼다.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
 
 
 def _resolve_rustfs_credentials(

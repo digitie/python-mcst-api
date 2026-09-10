@@ -9,6 +9,7 @@ ODCloud 식별자(`public_data_pk`)가 있는 항목에만 사용하며 서비�
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from types import TracebackType
 from typing import Any
@@ -46,7 +47,19 @@ class DataGoFileApiClient:
             session=session,
         )
         self.max_rps = max_rps
+        self._min_request_interval = 1.0 / max_rps if max_rps > 0 else 0.0
+        self._next_request_at = 0.0
         self.closed = False
+
+    def _throttle(self) -> None:
+        if self._min_request_interval <= 0:
+            return
+        now = time.monotonic()
+        wait_for = self._next_request_at - now
+        if wait_for > 0:
+            time.sleep(wait_for)
+            now = time.monotonic()
+        self._next_request_at = now + self._min_request_interval
 
     def __enter__(self) -> DataGoFileApiClient:
         return self
@@ -119,6 +132,7 @@ class DataGoFileApiClient:
             raise McstRequestError(f"{entry.slug} does not have ODCloud identifiers")
         _validate_page(page_no=page_no, per_page=per_page)
         service_key = self._require_service_key(entry)
+        self._throttle()
         payload = self._http.get_page(
             entry.public_data_pk,
             entry.public_data_detail_pk,
