@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- asyncio 전환 재검증을 위한 2인 적대적 리뷰어 서브에이전트(동시성/자원관리 관점, 보안/데이터
+  무결성 관점) 감사에서 발견·검증된 버그 2건 수정:
+  - `AsyncFileDataClient.save()`/`save_rustfs()`가 다운로드 후 로컬 파일 저장(`Path.mkdir()`/
+    `Path.write_bytes()`)과 `save_rustfs()`의 `boto3.client()` 생성을 `asyncio.to_thread`로
+    감싸지 않고 코루틴 안에서 직접 호출해 이벤트 루프를 블로킹하던 문제. `save_rustfs()`의
+    S3 업로드(`s3_client.put_object`)는 이미 `asyncio.to_thread`로 감싸져 있었는데 바로 위
+    로컬 저장 호출만 누락되어 있었다. 공용 `_write_file()` 헬퍼로 추출하고 모든 블로킹 호출을
+    `asyncio.to_thread`로 감쌌다(동기 `FileDataClient`도 동일 헬퍼 사용으로 통일).
+  - `DataGoFileApiClient`(동기)가 생성자에서 `max_rps`를 받아 저장만 하고 실제로는 어디서도
+    쓰지 않아 요청 속도를 전혀 제한하지 않던 문제 — 비동기 `AsyncDataGoFileApiClient`는
+    `TokenBucket`으로 제한되는데 동기 쪽만 완전히 무방비였다(`CultureOpenApiClient`가 이미
+    쓰는 수동 `_throttle()` 패턴이 `data_go.py`에는 빠져 있었음). 같은 패턴으로
+    `_throttle()`을 추가해 `request()` 호출 전에 적용.
+  - 두 리뷰어 모두 다른 관점(자격증명 마스킹, result-code 처리, pagination 대칭성, 레이트리미터
+    lock 안전성)에서는 실제 버그를 찾지 못함(credential-fallback chain은 파일별 단일 모듈 상수를
+    공유해 sync/async 클래스 간 복붙 오류가 날 구조 자체가 아님을 확인; `TokenBucket`은
+    `asyncio.Lock`으로 read-modify-write가 원자적임을 확인; 이 저장소에는 공용 pagination
+    헬퍼도 `PaginationLimitWarning` 개념도 없어 sibling 저장소(kma)의 절단-경고 누락 버그
+    유형이 애초에 적용되지 않음을 확인).
 - 4인 전문 리뷰어 서브에이전트의 적대적 코드 리뷰로 발견·검증된 버그 수정: `resolve_file_url()`/
   `download()`/`save()`가 `DatasetKind.LINK` 카탈로그 항목(관광단지·관광특구·추천여행지·전통사찰·
   문화기반시설·등록공연장 등 6종)을 가드하지 않아 실제 CSV 대신 HTML 안내 페이지를 그대로 저장하던

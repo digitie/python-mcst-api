@@ -194,6 +194,38 @@ def test_data_go_client_parses_odcloud_shape():
     assert "serviceKey" in session.calls[0][1]
 
 
+def test_data_go_client_throttles_sequential_requests(monkeypatch):
+    """DataGoFileApiClient.request()가 max_rps에 따라 호출 간격을 둬야 한다.
+
+    회귀 방지 대상: 이전에는 `max_rps`가 생성자에 저장만 되고 실제로 어디서도
+    쓰이지 않아 동기 클라이언트가 전혀 속도를 제한하지 않았다(비동기
+    AsyncDataGoFileApiClient는 TokenBucket으로 제한됨 — 동기/비동기 비대칭).
+    """
+    from mcst import data_go as data_go_module
+
+    response = FakeResponse('{"page":1,"perPage":1,"totalCount":0,"data":[]}')
+    session = FakeSession(response)
+    client = DataGoFileApiClient("secret-key", session=session, max_rps=2.0)
+
+    fake_now = [1000.0]
+    sleep_calls: list[float] = []
+
+    def fake_monotonic() -> float:
+        return fake_now[0]
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        fake_now[0] += seconds
+
+    monkeypatch.setattr(data_go_module.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(data_go_module.time, "sleep", fake_sleep)
+
+    client.public_libraries(per_page=1)
+    client.public_libraries(per_page=1)
+
+    assert sleep_calls == [0.5]
+
+
 def test_data_go_client_prefers_dataset_service_key():
     response = FakeResponse('{"page":1,"perPage":1,"totalCount":0,"data":[]}')
     session = FakeSession(response)
@@ -444,3 +476,41 @@ async def test_async_file_client_save_rustfs(tmp_path, monkeypatch):
         Body=b"col1,col2\nval1,val2\n",
         ContentType="text/csv",
     )
+
+
+@pytest.mark.asyncio
+async def test_async_file_client_save_offloads_disk_write_to_thread(tmp_path, monkeypatch):
+    """async save()가 로컬 파일 쓰기를 별도 스레드로 offload하는지 검증한다.
+
+    회귀 방지 대상: 이전에는 target.parent.mkdir()/target.write_bytes()가
+    asyncio.to_thread 없이 코루틴 안에서 직접 호출되어 이벤트 루프를 막았다.
+    """
+    import threading
+
+    from mcst import file_data as file_data_module
+
+    session = AsyncRoutedFakeSession(
+        {
+            _LEISURE_CLASSES_DETAIL_URL: FakeResponse(_LEISURE_CLASSES_DETAIL_HTML),
+            _LEISURE_CLASSES_CSV_URL: FakeResponse("col1,col2\nval1,val2\n"),
+        }
+    )
+
+    main_thread = threading.current_thread()
+    call_threads: list[threading.Thread] = []
+    real_write_file = file_data_module._write_file
+
+    def _tracking_write_file(target: object, data: object) -> None:
+        call_threads.append(threading.current_thread())
+        real_write_file(target, data)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(file_data_module, "_write_file", _tracking_write_file)
+
+    local_path = tmp_path / "test_offload.csv"
+    async with AsyncFileDataClient(session=session) as client:
+        saved_path = await client.save("leisure_classes_csv", local_path)
+
+    assert saved_path == local_path
+    assert local_path.read_text() == "col1,col2\nval1,val2\n"
+    assert len(call_threads) == 1
+    assert call_threads[0] is not main_thread
