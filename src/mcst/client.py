@@ -6,19 +6,21 @@ from collections.abc import Mapping
 from types import TracebackType
 from typing import Any
 
-from ._http import AsyncSessionLike, SessionLike
+from ._http import SessionLike
+from ._ratelimit import AsyncTokenBucket
+from ._redact import credential_values, redact_debug
 from .catalog import CatalogEntry, DatasetKind, get_dataset
-from .culture import AsyncCultureOpenApiClient, CultureOpenApiClient
-from .data_go import AsyncDataGoFileApiClient, DataGoFileApiClient
+from .culture import CultureOpenApiClient
+from .data_go import DataGoFileApiClient
 from .debug import DebugRun, error_to_dict
 from .exceptions import McstRequestError
-from .file_data import AsyncFileDataClient, FileDataClient
+from .file_data import FileDataClient
 
 _DEBUG_FETCH_KINDS = (DatasetKind.KCISA_OPEN_API, DatasetKind.DATA_GO_FILE_API)
 
 
 class McstClient:
-    """지원하는 문체부 데이터 접근면을 묶는 편의 진입점입니다."""
+    """지원하는 문체부 데이터 접근면을 묶는 비동기 편의 진입점입니다."""
 
     def __init__(
         self,
@@ -29,7 +31,9 @@ class McstClient:
         retries: int = 3,
         session: SessionLike | None = None,
         max_rps: float = 5.0,
+        rate_limiter: AsyncTokenBucket | None = None,
     ) -> None:
+        self.rate_limiter = rate_limiter if rate_limiter is not None else AsyncTokenBucket(max_rps)
         self.culture = CultureOpenApiClient(
             service_key=service_key,
             service_keys=service_keys,
@@ -37,6 +41,7 @@ class McstClient:
             retries=retries,
             session=session,
             max_rps=max_rps,
+            rate_limiter=self.rate_limiter,
         )
         self.data_go = DataGoFileApiClient(
             service_key=service_key,
@@ -45,134 +50,20 @@ class McstClient:
             retries=retries,
             session=session,
             max_rps=max_rps,
+            rate_limiter=self.rate_limiter,
         )
         self.file_data = FileDataClient(
             timeout=max(timeout, 20.0),
             retries=retries,
             session=session,
+            max_rps=max_rps,
+            rate_limiter=self.rate_limiter,
         )
         self.closed = False
 
-    def __enter__(self) -> McstClient:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def close(self) -> None:
-        self.culture.close()
-        self.data_go.close()
-        self.file_data.close()
-        self.closed = True
-
-    def debug_fetch(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        params: Mapping[str, Any] | None = None,
-        keyword: str | None = None,
-        page_no: int = 1,
-        num_of_rows: int = 10,
-        timeout: float | None = None,
-    ) -> DebugRun:
-        """카탈로그 kind로 알맞은 하위 클라이언트에 라우팅하는 제네릭 디버그 실행입니다.
-
-        데이터셋별 `if function_name == ...` 분기 대신 `CatalogEntry.kind`만 보고
-        `self.culture`/`self.data_go` 중 하나로 위임합니다. Streamlit 디버그 UI가
-        모든 데이터셋에 대해 이 메서드 하나만 호출하도록 설계했습니다.
-        """
-
-        entry = dataset if isinstance(dataset, CatalogEntry) else get_dataset(dataset)
-        if entry.kind == DatasetKind.KCISA_OPEN_API:
-            return self.culture.debug_request(
-                entry,
-                keyword=keyword,
-                page_no=page_no,
-                num_of_rows=num_of_rows,
-                params=params,
-                timeout=timeout,
-            )
-        if entry.kind == DatasetKind.DATA_GO_FILE_API:
-            return self.data_go.debug_request(
-                entry,
-                page_no=page_no,
-                per_page=num_of_rows,
-                params=params,
-            )
-        return _unsupported_kind_run(
-            entry, params=params, keyword=keyword, page_no=page_no, num_of_rows=num_of_rows
-        )
-
-    @classmethod
-    def from_env(cls, **kwargs: Any) -> McstClient:
-        """지원 환경 변수에서 인증키를 읽어 클라이언트를 생성합니다."""
-
-        return cls(**kwargs)
-
-    @classmethod
-    def aio(
-        cls,
-        service_key: str | None = None,
-        *,
-        service_keys: Mapping[str, str] | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
-        session: AsyncSessionLike | None = None,
-        max_rps: float = 5.0,
-    ) -> AsyncMcstClient:
-        return AsyncMcstClient(
-            service_key=service_key,
-            service_keys=service_keys,
-            timeout=timeout,
-            retries=retries,
-            session=session,
-            max_rps=max_rps,
-        )
-
-
-class AsyncMcstClient:
-    """지원하는 문체부 데이터 접근면을 묶는 비동기 편의 진입점입니다."""
-
-    def __init__(
-        self,
-        service_key: str | None = None,
-        *,
-        service_keys: Mapping[str, str] | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
-        session: AsyncSessionLike | None = None,
-        max_rps: float = 5.0,
-    ) -> None:
-        self.culture = AsyncCultureOpenApiClient(
-            service_key=service_key,
-            service_keys=service_keys,
-            timeout=timeout,
-            retries=retries,
-            session=session,
-            max_rps=max_rps,
-        )
-        self.data_go = AsyncDataGoFileApiClient(
-            service_key=service_key,
-            service_keys=service_keys,
-            timeout=timeout,
-            retries=retries,
-            session=session,
-            max_rps=max_rps,
-        )
-        self.file_data = AsyncFileDataClient(
-            timeout=max(timeout, 20.0),
-            retries=retries,
-            session=session,
-            max_rps=max_rps,
-        )
-        self.closed = False
-
-    async def __aenter__(self) -> AsyncMcstClient:
+    async def __aenter__(self) -> McstClient:
+        if self.closed:
+            raise RuntimeError("client is closed")
         return self
 
     async def __aexit__(
@@ -189,7 +80,7 @@ class AsyncMcstClient:
         await self.file_data.aclose()
         self.closed = True
 
-    async def adebug_fetch(
+    async def debug_fetch(
         self,
         dataset: str | CatalogEntry,
         *,
@@ -199,7 +90,7 @@ class AsyncMcstClient:
         num_of_rows: int = 10,
         timeout: float | None = None,
     ) -> DebugRun:
-        """`McstClient.debug_fetch()`의 비동기 버전입니다. 카탈로그 kind로만 라우팅합니다."""
+        """카탈로그 kind에 따라 비동기 디버그 요청을 라우팅합니다."""
 
         entry = dataset if isinstance(dataset, CatalogEntry) else get_dataset(dataset)
         if entry.kind == DatasetKind.KCISA_OPEN_API:
@@ -218,12 +109,19 @@ class AsyncMcstClient:
                 per_page=num_of_rows,
                 params=params,
             )
-        return _unsupported_kind_run(
-            entry, params=params, keyword=keyword, page_no=page_no, num_of_rows=num_of_rows
+        return redact_debug(
+            _unsupported_kind_run(
+                entry, params=params, keyword=keyword, page_no=page_no, num_of_rows=num_of_rows
+            ),
+            self.culture.service_key or "",
+            self.data_go.service_key or "",
+            *self.culture.service_keys.values(),
+            *self.data_go.service_keys.values(),
+            *credential_values(params),
         )
 
     @classmethod
-    def from_env(cls, **kwargs: Any) -> AsyncMcstClient:
+    def from_env(cls, **kwargs: Any) -> McstClient:
         """지원 환경 변수에서 인증키를 읽어 비동기 클라이언트를 생성합니다."""
 
         return cls(**kwargs)

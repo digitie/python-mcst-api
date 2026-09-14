@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-09-14 (T-006 검증 — 새 HTTP403으로 머지 보류)
+
+두 독립 리뷰의 모든 지적을 수정하고 승인받았다. 오프라인80+14subtests와
+mypy17/ruff/compile을 통과했다. 리뷰 후 첫live11pass11fail2skip에서
+ODCloud debug 호출 경로와 XLSX/HWPX 검사 방식을 교정하고 두 리뷰어가 재확인했다.
+최종live21pass1fail2skip. KCISA 클래스/액티비티는 HTTP403,
+어린이 서점 CSV는 다운로드 링크 없음으로 실패했다. 사용자에게 보고하고 머지보류.
+최초 DNS7건은 최종 재실행에서 해소됐다. [검증 기록](verification-async-tps.md) 참조.
+
+## 2026-09-14 (T-006 — 비동기 전용 및 공통 TPS)
+
+origin/master 99bcb26에서 canonical 비동기 클라이언트로 통합했다. GET 재시도와
+리디렉션, culture/ODCloud/파일 다운로드/RustFS PUT이 공유 토큰 버킷을 사용한다.
+파일 쓰기·CSV 파싱은 취소 시 완료를 기다리는 작업 스레드로 분리하고,
+RustFS는 boto3 네트워크 호출 대신 HTTPX SigV4 PUT으로 구현했다.
+공개 예외/디버그 인증값 마스킹과 비동기 UI/문서 예제를 함께 정리했다.
+카탈로그 항목과 기존 데이터 원천은 변경하지 않았다.
+독립 리뷰 2인과 리뷰 이후 live 결과는 후속 검증 항목에 기록한다.
+
 ## 2026-06-12 (#9 — 빈 params가 URL query를 박탈: 파일 다운로드 live 전수 실패 수정)
 
 **작업**: #7 머지 직후 live 검증에서 culture.go.kr 상세페이지 13종 전부

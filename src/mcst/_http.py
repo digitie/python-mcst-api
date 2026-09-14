@@ -3,24 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import logging
+import math
 import random
 import re
 import time
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Protocol, cast
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse, urlsplit
 from xml.etree import ElementTree
 
 import httpx
 
 from ._convert import to_int_or_none, without_none
+from ._httpx import send_after_token
+from ._ratelimit import AsyncTokenBucket
+from ._redact import credential_values, redact_exception, redact_secret
 from .debug import redact_sensitive
 from .exceptions import (
     McstAuthError,
+    McstError,
     McstNetworkError,
     McstParseError,
     McstRateLimitError,
@@ -39,16 +46,6 @@ class ResponseLike(Protocol):
 
 
 class SessionLike(Protocol):
-    def get(
-        self,
-        url: str,
-        *,
-        params: Mapping[str, Any] | None = None,
-        timeout: float,
-    ) -> ResponseLike: ...
-
-
-class AsyncSessionLike(Protocol):
     async def get(
         self,
         url: str,
@@ -76,58 +73,11 @@ class NormalizedPayload:
     raw: Any
 
 
-@dataclass(slots=True)
-class TokenBucket:
-    """Async token bucket rate limiter."""
-
-    max_rps: float = 5.0
-    capacity: float | None = None
-    _tokens: float = field(init=False)
-    _updated_at: float = field(init=False)
-    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
-
-    def __post_init__(self) -> None:
-        if self.max_rps <= 0:
-            raise ValueError("max_rps must be greater than 0")
-        self.capacity = self.capacity or self.max_rps
-        self._tokens = self.capacity
-        self._updated_at = time.monotonic()
-
-    async def acquire(self) -> None:
-        while True:
-            async with self._lock:
-                self._refill()
-                if self._tokens >= 1:
-                    self._tokens -= 1
-                    return
-                wait_for = (1 - self._tokens) / self.max_rps
-            await asyncio.sleep(wait_for)
-
-    def _refill(self) -> None:
-        now = time.monotonic()
-        elapsed = now - self._updated_at
-        self._updated_at = now
-        assert self.capacity is not None
-        self._tokens = min(self.capacity, self._tokens + elapsed * self.max_rps)
-
-
 def build_session() -> SessionLike:
-    """기본 헤더를 적용한 httpx 동기 클라이언트를 만듭니다."""
-
-    return cast(
-        SessionLike,
-        httpx.Client(
-            headers={"User-Agent": DEFAULT_USER_AGENT},
-            follow_redirects=True,
-        ),
-    )
-
-
-def build_async_session() -> AsyncSessionLike:
     """기본 헤더를 적용한 httpx 비동기 클라이언트를 만듭니다."""
 
     return cast(
-        AsyncSessionLike,
+        SessionLike,
         httpx.AsyncClient(
             headers={"User-Agent": DEFAULT_USER_AGENT},
             follow_redirects=True,
@@ -136,7 +86,7 @@ def build_async_session() -> AsyncSessionLike:
 
 
 class HttpClient:
-    """공통 오류 처리와 재시도를 포함한 동기 GET 호출 래퍼입니다."""
+    """공통 오류 처리, 재시도, rate limit을 포함한 비동기 GET 호출 래퍼입니다."""
 
     def __init__(
         self,
@@ -145,125 +95,47 @@ class HttpClient:
         session: SessionLike | None = None,
         timeout: float = 10.0,
         retries: int = 3,
-    ) -> None:
-        self.service_key = service_key
-        self.session = session or build_session()
-        self.timeout = timeout
-        self.retries = retries
-        self._owns_session = session is None
-
-    def close(self) -> None:
-        close = getattr(self.session, "close", None)
-        if self._owns_session and callable(close):
-            close()
-
-    def get_response(
-        self,
-        url: str,
-        params: Mapping[str, Any] | None = None,
-        *,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> ResponseLike:
-        active_service_key = service_key or self.service_key
-        active_timeout = timeout if timeout is not None else self.timeout
-        query = without_none(params or {})
-        for attempt in range(self.retries + 1):
-            try:
-                # httpx는 params를 명시하면(빈 dict 포함) URL 자체의 query를
-                # 통째로 대체한다 — 파일 다운로드 페이지처럼 query가 URL에
-                # 박힌 호출(#9)에서 detail이 빈 셸로 렌더되는 원인. 비어 있으면
-                # params를 아예 전달하지 않는다.
-                if query:
-                    response = self.session.get(url, params=query, timeout=active_timeout)
-                else:
-                    response = self.session.get(url, timeout=active_timeout)
-            except httpx.HTTPError as exc:
-                if attempt >= self.retries:
-                    raise _network_error(url, exc, active_service_key) from exc
-                _sleep_before_retry(attempt)
-                continue
-            if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
-                _sleep_before_retry(attempt, _retry_after_seconds(response))
-                continue
-            _raise_for_status(response, endpoint=url, service_key=active_service_key)
-            return response
-        raise AssertionError("unreachable")
-
-    def get_debug_response(
-        self,
-        url: str,
-        params: Mapping[str, Any] | None = None,
-        *,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> tuple[ResponseLike, dict[str, Any], dict[str, Any]]:
-        """디버그 UI가 저장할 수 있는 요청/응답 외피와 함께 GET을 수행합니다."""
-
-        query = without_none(params or {})
-        active_service_key = service_key or self.service_key
-        started_at = time.perf_counter()
-        response = self.get_response(url, query, service_key=active_service_key, timeout=timeout)
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
-        return (
-            response,
-            _request_data(url, query),
-            _response_data(response, active_service_key, elapsed_ms=elapsed_ms),
-        )
-
-    def get_bytes(
-        self,
-        url: str,
-        params: Mapping[str, Any] | None = None,
-        *,
-        timeout: float | None = None,
-    ) -> bytes:
-        return self.get_response(url, params, timeout=timeout).content
-
-    def get_json(
-        self,
-        url: str,
-        params: Mapping[str, Any] | None = None,
-        *,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> Any:
-        active_service_key = service_key or self.service_key
-        response = self.get_response(url, params, service_key=active_service_key, timeout=timeout)
-        try:
-            return response.json()
-        except ValueError as exc:
-            text = _redact(response.text, active_service_key)[:300]
-            raise McstParseError(
-                f"response was not valid JSON: {text}",
-                endpoint=url,
-                failure_kind="parse",
-            ) from exc
-
-
-class AsyncHttpClient:
-    """공통 오류 처리, 재시도, rate limit을 포함한 비동기 GET 호출 래퍼입니다."""
-
-    def __init__(
-        self,
-        *,
-        service_key: str | None = None,
-        session: AsyncSessionLike | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
         max_rps: float = 5.0,
+        rate_limiter: AsyncTokenBucket | None = None,
     ) -> None:
         self.service_key = service_key
-        self._bucket = TokenBucket(max_rps=max_rps)
-        self.session = session or build_async_session()
+        self.rate_limiter = rate_limiter if rate_limiter is not None else AsyncTokenBucket(max_rps)
+        self._session = session
+        self.closed = False
+        self._validate_session(session)
         self.timeout = timeout
-        self.retries = retries
+        self.retries = max(0, retries)
         self._owns_session = session is None
+
+    @staticmethod
+    def _validate_session(session: SessionLike | None) -> None:
+        if session is not None and not inspect.iscoroutinefunction(getattr(session, "get", None)):
+            raise TypeError("session.get must be async")
+        if isinstance(session, httpx.AsyncClient):
+            if session.auth is not None and type(session.auth) not in {httpx.Auth, httpx.BasicAuth}:
+                raise TypeError("Digest/custom Auth may send unmetered requests")
+
+    def _ready(self) -> SessionLike:
+        if self.closed:
+            raise RuntimeError("client is closed")
+        if self._session is None:
+            self._session = build_session()
+        self._validate_session(self._session)
+        return self._session
+
+    def _before_send(self) -> None:
+        self._ready()
+
+    @property
+    def session(self) -> SessionLike:
+        return self._ready()
 
     async def aclose(self) -> None:
-        close = getattr(self.session, "aclose", None)
-        if self._owns_session and callable(close):
-            await close()
+        if not self.closed:
+            self.closed = True
+            close = getattr(self._session, "aclose", None)
+            if self._owns_session and callable(close):
+                await close()
 
     async def get_response(
         self,
@@ -273,31 +145,51 @@ class AsyncHttpClient:
         service_key: str | None = None,
         timeout: float | None = None,
     ) -> ResponseLike:
-        active_service_key = service_key or self.service_key
-        active_timeout = timeout if timeout is not None else self.timeout
-        query = without_none(params or {})
-        for attempt in range(self.retries + 1):
-            await self._bucket.acquire()
-            try:
-                # 동기 클라이언트와 동일(#9): 빈 params는 URL query를 대체하므로
-                # 비어 있으면 전달하지 않는다.
-                if query:
-                    response = await self.session.get(
-                        url, params=query, timeout=active_timeout
-                    )
-                else:
-                    response = await self.session.get(url, timeout=active_timeout)
-            except httpx.HTTPError as exc:
-                if attempt >= self.retries:
-                    raise _network_error(url, exc, active_service_key) from exc
-                await _async_sleep_before_retry(attempt)
-                continue
-            if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
-                await _async_sleep_before_retry(attempt, _retry_after_seconds(response))
-                continue
-            _raise_for_status(response, endpoint=url, service_key=active_service_key)
-            return response
-        raise AssertionError("unreachable")
+        try:
+            active_service_key = service_key or self.service_key
+            active_timeout = timeout if timeout is not None else self.timeout
+            query = without_none(params or {})
+            self._ready()
+            for attempt in range(self.retries + 1):
+                await self.rate_limiter.acquire()
+                session = self._ready()
+                try:
+                    if isinstance(session, httpx.AsyncClient):
+                        request = session.build_request(
+                            "GET", url, params=query or None, timeout=active_timeout
+                        )
+                        response = await send_after_token(
+                            session, request, self.rate_limiter, before_send=self._before_send
+                        )
+                    elif query:
+                        response = await session.get(url, params=query, timeout=active_timeout)
+                    else:
+                        response = await session.get(url, timeout=active_timeout)
+                except httpx.TooManyRedirects as exc:
+                    raise _network_error(url, exc, active_service_key) from None
+                except httpx.HTTPError as exc:
+                    if attempt >= self.retries:
+                        raise _network_error(url, exc, active_service_key) from None
+                    await _sleep_before_retry(attempt)
+                    continue
+                if response.status_code in TRANSIENT_STATUSES and attempt < self.retries:
+                    retry_after = _retry_after_seconds(response)
+                    await close_response(response)
+                    await _sleep_before_retry(attempt, retry_after)
+                    continue
+                _raise_for_status(response, endpoint=url, service_key=active_service_key)
+                return response
+            raise AssertionError("unreachable")
+
+        except McstError as exc:
+            redact_exception(
+                exc,
+                service_key or "",
+                self.service_key or "",
+                *credential_values(params),
+                *credential_values(dict(parse_qsl(urlsplit(url).query))),
+            )
+            raise exc from None
 
     async def get_debug_response(
         self,
@@ -345,71 +237,16 @@ class AsyncHttpClient:
         )
         try:
             return response.json()
-        except ValueError as exc:
+        except ValueError:
             text = _redact(response.text, active_service_key)[:300]
             raise McstParseError(
                 f"response was not valid JSON: {text}",
                 endpoint=url,
                 failure_kind="parse",
-            ) from exc
+            ) from None
 
 
 class KcisaHttp(HttpClient):
-    """culture.go.kr/KCISA OpenAPI 엔드포인트용 동기 HTTP 클라이언트입니다."""
-
-    def get_page(
-        self,
-        endpoint_url: str,
-        *,
-        page_no: int,
-        num_of_rows: int,
-        keyword: str | None = None,
-        params: Mapping[str, Any] | None = None,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> NormalizedPayload:
-        active_service_key = _require_key(service_key or self.service_key, endpoint_url)
-        query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
-        response = self.get_response(
-            endpoint_url, query, service_key=active_service_key, timeout=timeout
-        )
-        return _normalized_response(
-            response,
-            endpoint_url,
-            active_service_key,
-            page_no,
-            num_of_rows,
-        )
-
-    def get_debug_page(
-        self,
-        endpoint_url: str,
-        *,
-        page_no: int,
-        num_of_rows: int,
-        keyword: str | None = None,
-        params: Mapping[str, Any] | None = None,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
-        """KCISA 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
-
-        active_service_key = _require_key(service_key or self.service_key, endpoint_url)
-        query = _kcisa_query(active_service_key, page_no, num_of_rows, keyword, params)
-        response, request_data, response_data = self.get_debug_response(
-            endpoint_url,
-            query,
-            service_key=active_service_key,
-            timeout=timeout,
-        )
-        payload = _decode_payload(response, endpoint_url, active_service_key)
-        response_data["body"] = redact_sensitive(payload)
-        normalized = _normalize_payload(payload, page_no=page_no, num_of_rows=num_of_rows)
-        _raise_for_payload_error(normalized.raw, endpoint_url, service_key=active_service_key)
-        return normalized, request_data, response_data
-
-
-class AsyncKcisaHttp(AsyncHttpClient):
     """culture.go.kr/KCISA OpenAPI 엔드포인트용 비동기 HTTP 클라이언트입니다."""
 
     async def get_page(
@@ -465,76 +302,6 @@ class AsyncKcisaHttp(AsyncHttpClient):
 
 
 class OdcloudHttp(HttpClient):
-    """data.go.kr 자동변환 파일 API용 동기 HTTP 클라이언트입니다."""
-
-    base_url = "https://api.odcloud.kr/api"
-
-    def get_page(
-        self,
-        public_data_pk: str,
-        public_data_detail_pk: str,
-        *,
-        page_no: int,
-        per_page: int,
-        params: Mapping[str, Any] | None = None,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> NormalizedPayload:
-        active_service_key = _require_key(service_key or self.service_key, public_data_pk)
-        url, query = _odcloud_url_query(
-            self.base_url,
-            public_data_pk,
-            public_data_detail_pk,
-            page_no,
-            per_page,
-            active_service_key,
-            params,
-        )
-        payload = self.get_json(url, query, service_key=active_service_key, timeout=timeout)
-        return _normalized_odcloud_payload(payload, url, page_no, per_page, active_service_key)
-
-    def get_debug_page(
-        self,
-        public_data_pk: str,
-        public_data_detail_pk: str,
-        *,
-        page_no: int,
-        per_page: int,
-        params: Mapping[str, Any] | None = None,
-        service_key: str | None = None,
-        timeout: float | None = None,
-    ) -> tuple[NormalizedPayload, dict[str, Any], dict[str, Any]]:
-        """ODCloud 응답과 fixture 저장용 요청/응답 정보를 함께 반환합니다."""
-
-        active_service_key = _require_key(service_key or self.service_key, public_data_pk)
-        url, query = _odcloud_url_query(
-            self.base_url,
-            public_data_pk,
-            public_data_detail_pk,
-            page_no,
-            per_page,
-            active_service_key,
-            params,
-        )
-        response, request_data, response_data = self.get_debug_response(
-            url,
-            query,
-            service_key=active_service_key,
-            timeout=timeout,
-        )
-        payload = _json_payload(response, url, active_service_key)
-        response_data["body"] = redact_sensitive(payload)
-        normalized = _normalized_odcloud_payload(
-            payload,
-            url,
-            page_no,
-            per_page,
-            active_service_key,
-        )
-        return normalized, request_data, response_data
-
-
-class AsyncOdcloudHttp(AsyncHttpClient):
     """data.go.kr 자동변환 파일 API용 비동기 HTTP 클라이언트입니다."""
 
     base_url = "https://api.odcloud.kr/api"
@@ -714,7 +481,8 @@ def _retry_after_seconds(response: ResponseLike) -> float | None:
         return None
     value = value.strip()
     try:
-        return max(float(value), 0.0)
+        seconds = float(value)
+        return max(seconds, 0.0) if math.isfinite(seconds) else None
     except ValueError:
         pass
     try:
@@ -727,16 +495,7 @@ def _retry_after_seconds(response: ResponseLike) -> float | None:
     return max((parsed - now).total_seconds(), 0.0)
 
 
-def _sleep_before_retry(attempt: int, retry_after: float | None = None) -> None:
-    backoff = 0.3 * (2**attempt)
-    jitter = random.uniform(0, 0.1 * backoff)
-    delay = min(backoff + jitter, 4.0)
-    if retry_after is not None:
-        delay = max(delay, min(retry_after, 60.0))
-    time.sleep(delay)
-
-
-async def _async_sleep_before_retry(attempt: int, retry_after: float | None = None) -> None:
+async def _sleep_before_retry(attempt: int, retry_after: float | None = None) -> None:
     backoff = 0.3 * (2**attempt)
     jitter = random.uniform(0, 0.1 * backoff)
     delay = min(backoff + jitter, 4.0)
@@ -798,8 +557,10 @@ def _raise_for_status_payload_error(
         return
     code, message = _payload_code_and_message(payload)
     text = _redact(f"HTTP {response.status_code}: {code}: {message}", service_key)
-    upper = text.upper()
-    if code in {"-4", "-401", "20", "30", "31"} or "SERVICE" in upper or "인증" in text:
+    upper = f"{code}: {message}".upper()
+    if code in {"-4", "-401", "20", "30", "31"} or (
+        code != "22" and ("SERVICE" in upper or "인증" in message)
+    ):
         raise McstAuthError(
             text,
             status_code=response.status_code,
@@ -827,8 +588,8 @@ def _decode_payload(
     if text.startswith("<"):
         try:
             root = ElementTree.fromstring(text)
-        except ElementTree.ParseError as exc:
-            raise McstParseError("response was not valid XML", failure_kind="parse") from exc
+        except ElementTree.ParseError:
+            raise McstParseError("response was not valid XML", failure_kind="parse") from None
         return _element_to_data(root)
     raise McstParseError(
         f"unsupported response body from {urlparse(endpoint).netloc}",
@@ -839,13 +600,13 @@ def _decode_payload(
 def _json_payload(response: ResponseLike, endpoint: str, service_key: str | None) -> Any:
     try:
         return response.json()
-    except ValueError as exc:
+    except ValueError:
         text = _redact(response.text, service_key)[:300]
         raise McstParseError(
             f"response was not valid JSON: {text}",
             endpoint=endpoint,
             failure_kind="parse",
-        ) from exc
+        ) from None
 
 
 _MAX_XML_DEPTH = 50
@@ -942,8 +703,10 @@ def _raise_for_payload_error(payload: Any, endpoint: str, *, service_key: str | 
     if not code or code in {"0", "00", "0000", "NORMAL_CODE", "INFO-000"}:
         return
     text = _redact(f"{code}: {message}", service_key)
-    upper = text.upper()
-    if code in {"-4", "-401", "20", "30", "31"} or "SERVICE" in upper or "인증" in text:
+    upper = f"{code}: {message}".upper()
+    if code in {"-4", "-401", "20", "30", "31"} or (
+        code != "22" and ("SERVICE" in upper or "인증" in message)
+    ):
         raise McstAuthError(text, result_code=code, endpoint=endpoint, failure_kind="auth")
     if code in {"03", "INFO-200"} or "NO DATA" in upper:
         return
@@ -970,11 +733,7 @@ def _redact(text: str, secret: str | None) -> str:
     redacted = SENSITIVE_QUERY_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
     if not secret:
         return redacted
-    cleaned = secret.strip().strip('"').strip("'")
-    for candidate in {secret, cleaned}:
-        if candidate:
-            redacted = redacted.replace(candidate, "[redacted]")
-    return redacted
+    return str(redact_secret(redacted, secret, secret.strip().strip('"').strip("'")))
 
 
 def _network_error(url: str, exc: httpx.HTTPError, service_key: str | None) -> McstNetworkError:
@@ -992,3 +751,21 @@ def _network_error(url: str, exc: httpx.HTTPError, service_key: str | None) -> M
         endpoint=url,
         failure_kind="network",
     )
+
+
+async def close_response(response: ResponseLike) -> None:
+    close = getattr(response, "aclose", None)
+    if callable(close):
+        await close()
+
+
+class _KeyLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = SENSITIVE_QUERY_RE.sub(
+            lambda match: f"{match.group(1)}=[redacted]", record.getMessage()
+        )
+        record.args = ()
+        return True
+
+
+logging.getLogger("httpx").addFilter(_KeyLogFilter())

@@ -4,18 +4,18 @@
 
 - Web UI는 테스트 코드를 대량 생성하지 않고 fixture JSON을 만드는 도구로 둡니다.
 - `python-mcst-api` 본 패키지는 Streamlit에 의존하지 않습니다.
-- 별도 UI 프로젝트는 `mcst`를 wheel 또는 editable install로 가져와 `debug_request()`를 호출합니다.
+- 별도 UI 프로젝트는 `mcst`를 wheel 또는 editable install로 가져와 `await client.debug_request()`를 호출합니다.
 - pytest는 `tests/fixtures/**/*.json`을 자동으로 읽어 외부 API 호출 없이 replay 기반 회귀 테스트를 수행합니다.
 
 ## 디버그 실행 경계
 
-`CultureOpenApiClient.debug_request()`와 `DataGoFileApiClient.debug_request()`는 `DebugRun`을 반환합니다.
+`CultureOpenApiClient.debug_request()`와 `DataGoFileApiClient.debug_request()`는 await하면 `DebugRun`을 반환합니다.
 
 `DebugRun`에는 다음 값이 들어갑니다.
 
 | 필드 | 내용 |
 | --- | --- |
-| `function` | fixture runner가 사용할 함수 식별자입니다. 예: `culture.leisure_activity_facilities`, `data_go.leisure_classes_csv` |
+| `function` | fixture runner가 사용할 함수 식별자입니다. 예: `culture.leisure_activity_facilities`, `data_go.public_libraries` |
 | `input` | UI 또는 호출자가 입력한 dataset, paging, keyword, 추가 파라미터입니다. |
 | `request` | HTTP method, URL, query입니다. 인증키는 `<REDACTED>`로 마스킹됩니다. |
 | `response` | HTTP 상태(`status_code`), 소요시간(`elapsed_ms`), 응답 헤더, 파싱된 raw body입니다. |
@@ -35,17 +35,19 @@ tests/fixtures/{function}/{case_name}.json
 예시는 다음과 같습니다.
 
 ```python
+import asyncio
 from mcst import DataGoFileApiClient, save_fixture
 
-client = DataGoFileApiClient.from_env()
-debug_run = client.debug_request("leisure_classes_csv", per_page=3)
 
-save_fixture(
-    debug_run,
-    base_dir="tests/fixtures",
-    case_name="leisure_classes_normal",
-    description="전국 문화 여가 활동 시설 클래스 정상 응답",
-)
+async def main():
+    async with DataGoFileApiClient.from_env() as client:
+        run = await client.debug_request("public_libraries", per_page=3)
+    save_fixture(run, base_dir="tests/fixtures", case_name="public_libraries_normal",
+                 description="공공도서관 위치 조회 결과")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 같은 파일명이 이미 있으면 기본적으로 덮어쓰지 않고 `FileExistsError`를 냅니다. 의도적으로 갱신할 때만 `overwrite=True`를 사용합니다.
@@ -149,3 +151,5 @@ UI의 저장 버튼은 `save_fixture()`만 호출하면 됩니다. 라이브러�
 `McstClient.debug_fetch()`가 지원하지 않습니다 — Data source 선택지에도
 노출하지 않으며, `mcst.file_data.FileDataClient`에는 아직 `DebugRun`을 만드는
 동등한 메서드가 없습니다.
+
+UI는 요청 한 건을 `asyncio.run()`으로 실행하며, 해당 이벤트 루프 안에서 클라이언트를 생성하고 닫습니다. 저장·replay 함수는 로컬 동기 도구입니다.

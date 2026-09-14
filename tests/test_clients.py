@@ -6,9 +6,6 @@ from typing import Any
 import pytest
 
 from mcst import (
-    AsyncCultureOpenApiClient,
-    AsyncDataGoFileApiClient,
-    AsyncFileDataClient,
     CultureOpenApiClient,
     DataGoFileApiClient,
     FileDataClient,
@@ -42,7 +39,7 @@ class FakeSession:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.last_timeout: float | None = None
 
-    def get(
+    async def get(
         self,
         url: str,
         *,
@@ -83,7 +80,7 @@ class RoutedFakeSession:
         self.routes = routes
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def get(
+    async def get(
         self,
         url: str,
         *,
@@ -120,7 +117,7 @@ class AsyncRoutedFakeSession:
         self.closed = True
 
 
-def test_culture_client_parses_xml_page_and_hides_service_key_from_model():
+async def test_culture_client_parses_xml_page_and_hides_service_key_from_model():
     xml = """
     <response>
       <header><resultCode>00</resultCode><resultMsg>OK</resultMsg></header>
@@ -140,7 +137,7 @@ def test_culture_client_parses_xml_page_and_hides_service_key_from_model():
     session = FakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
     client = CultureOpenApiClient("secret-key", session=session)
 
-    page = client.leisure_activity_facilities(num_of_rows=1)
+    page = await client.leisure_activity_facilities(num_of_rows=1)
 
     assert page.total_count == 1
     assert page.items[0].name == "테스트 시설"
@@ -149,7 +146,7 @@ def test_culture_client_parses_xml_page_and_hides_service_key_from_model():
     assert session.calls[0][1]["serviceKey"] == "secret-key"
 
 
-def test_culture_client_prefers_dataset_service_key():
+async def test_culture_client_prefers_dataset_service_key():
     session = FakeSession(FakeResponse("{}", headers={"Content-Type": "application/json"}))
     client = CultureOpenApiClient(
         service_key="fallback-key",
@@ -157,29 +154,29 @@ def test_culture_client_prefers_dataset_service_key():
         session=session,
     )
 
-    client.cafe_bookstores()
+    (await client.cafe_bookstores())
 
     assert session.calls[0][1]["serviceKey"] == "cafe-key"
 
 
-def test_culture_client_exposes_used_bookstores_method():
+async def test_culture_client_exposes_used_bookstores_method():
     session = FakeSession(FakeResponse("{}", headers={"Content-Type": "application/json"}))
     client = CultureOpenApiClient("secret-key", session=session)
 
-    client.used_bookstores(num_of_rows=1)
+    (await client.used_bookstores(num_of_rows=1))
 
     assert session.calls[0][0] == "https://api.kcisa.kr/API_CNV_045/request"
     assert session.calls[0][1]["numOfRows"] == 1
 
 
-def test_culture_client_requires_key_when_calling_endpoint():
+async def test_culture_client_requires_key_when_calling_endpoint():
     client = CultureOpenApiClient(service_key=None, session=FakeSession(FakeResponse("{}")))
 
     with pytest.raises(McstAuthError):
-        client.leisure_activity_facilities()
+        (await client.leisure_activity_facilities())
 
 
-def test_data_go_client_parses_odcloud_shape():
+async def test_data_go_client_parses_odcloud_shape():
     response = FakeResponse(
         '{"page":1,"perPage":1,"totalCount":2,"data":[{"도서관명":"시립 도서관"}]}',
         headers={"Content-Type": "application/json"},
@@ -187,46 +184,14 @@ def test_data_go_client_parses_odcloud_shape():
     session = FakeSession(response)
     client = DataGoFileApiClient("secret-key", session=session)
 
-    page = client.public_libraries(per_page=1)
+    page = await client.public_libraries(per_page=1)
 
     assert page.total_count == 2
     assert page.items == ({"도서관명": "시립 도서관"},)
     assert "serviceKey" in session.calls[0][1]
 
 
-def test_data_go_client_throttles_sequential_requests(monkeypatch):
-    """DataGoFileApiClient.request()가 max_rps에 따라 호출 간격을 둬야 한다.
-
-    회귀 방지 대상: 이전에는 `max_rps`가 생성자에 저장만 되고 실제로 어디서도
-    쓰이지 않아 동기 클라이언트가 전혀 속도를 제한하지 않았다(비동기
-    AsyncDataGoFileApiClient는 TokenBucket으로 제한됨 — 동기/비동기 비대칭).
-    """
-    from mcst import data_go as data_go_module
-
-    response = FakeResponse('{"page":1,"perPage":1,"totalCount":0,"data":[]}')
-    session = FakeSession(response)
-    client = DataGoFileApiClient("secret-key", session=session, max_rps=2.0)
-
-    fake_now = [1000.0]
-    sleep_calls: list[float] = []
-
-    def fake_monotonic() -> float:
-        return fake_now[0]
-
-    def fake_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-        fake_now[0] += seconds
-
-    monkeypatch.setattr(data_go_module.time, "monotonic", fake_monotonic)
-    monkeypatch.setattr(data_go_module.time, "sleep", fake_sleep)
-
-    client.public_libraries(per_page=1)
-    client.public_libraries(per_page=1)
-
-    assert sleep_calls == [0.5]
-
-
-def test_data_go_client_prefers_dataset_service_key():
+async def test_data_go_client_prefers_dataset_service_key():
     response = FakeResponse('{"page":1,"perPage":1,"totalCount":0,"data":[]}')
     session = FakeSession(response)
     client = DataGoFileApiClient(
@@ -235,7 +200,7 @@ def test_data_go_client_prefers_dataset_service_key():
         session=session,
     )
 
-    client.public_libraries(per_page=1)
+    (await client.public_libraries(per_page=1))
 
     assert session.calls[0][1]["serviceKey"] == "library-key"
 
@@ -255,7 +220,7 @@ async def test_async_culture_client_parses_xml_page():
     """
     session = AsyncFakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
 
-    async with AsyncCultureOpenApiClient("secret-key", session=session) as client:
+    async with CultureOpenApiClient("secret-key", session=session) as client:
         page = await client.leisure_activity_facilities(num_of_rows=1)
 
     assert page.items[0].name == "비동기 시설"
@@ -271,7 +236,7 @@ async def test_async_data_go_client_parses_odcloud_shape():
     )
     session = AsyncFakeSession(response)
 
-    async with AsyncDataGoFileApiClient("secret-key", session=session) as client:
+    async with DataGoFileApiClient("secret-key", session=session) as client:
         page = await client.public_libraries(per_page=1)
 
     assert page.items == ({"도서관명": "비동기 도서관"},)
@@ -280,7 +245,7 @@ async def test_async_data_go_client_parses_odcloud_shape():
 
 @pytest.mark.asyncio
 async def test_top_level_async_client_facade():
-    client = McstClient.aio(service_key="secret-key")
+    client = McstClient(service_key="secret-key")
 
     async with client as active:
         assert active.culture.service_key == "secret-key"
@@ -299,13 +264,11 @@ _LEISURE_CLASSES_CSV_URL = (
     "?downFileName=API_CIA_081_20260530.csv&downFilePath=apiExcelData"
 )
 _LEISURE_CLASSES_DETAIL_HTML = (
-    "<a href=\"#none\" onclick=\"fnFileDwld('"
-    + _LEISURE_CLASSES_CSV_URL
-    + "')\">파일 다운로드</a>"
+    '<a href="#none" onclick="fnFileDwld(\'' + _LEISURE_CLASSES_CSV_URL + "')\">파일 다운로드</a>"
 )
 
 
-def test_file_client_reads_csv_with_encoding_fallback():
+async def test_file_client_reads_csv_with_encoding_fallback():
     """FILE_DOWNLOAD 데이터셋은 상세페이지 스크레이핑 → CSV 다운로드 2-hop이고,
     utf-8로 못 읽는 본문은 cp949 폴백으로 디코딩한다."""
 
@@ -318,7 +281,7 @@ def test_file_client_reads_csv_with_encoding_fallback():
     )
     client = FileDataClient(session=session)
 
-    rows = client.read_csv("leisure_classes_csv")
+    rows = await client.read_csv("leisure_classes_csv")
 
     assert rows == [{"name": "가나다", "address": "서울"}]
     assert [url for url, _ in session.calls] == [
@@ -327,14 +290,14 @@ def test_file_client_reads_csv_with_encoding_fallback():
     ]
 
 
-def test_read_csv_rejects_link_only_entries():
+async def test_read_csv_rejects_link_only_entries():
     client = FileDataClient(session=FakeSession(FakeResponse("")))
 
     with pytest.raises(McstRequestError):
-        list(client.iter_csv("tourism_complexes"))
+        [item async for item in client.iter_csv("tourism_complexes")]
 
 
-def test_culture_client_new_helpers_and_dynamic_timeout():
+async def test_culture_client_new_helpers_and_dynamic_timeout():
     xml = """
     <response>
       <header><resultCode>00</resultCode><resultMsg>OK</resultMsg></header>
@@ -350,16 +313,16 @@ def test_culture_client_new_helpers_and_dynamic_timeout():
     client = CultureOpenApiClient("secret-key", session=session)
 
     # 신규 헬퍼 메서드 동기 호출 검증
-    page1 = client.leisure_classes(num_of_rows=1)
+    page1 = await client.leisure_classes(num_of_rows=1)
     assert page1.items[0].name == "신규 시설"
     assert session.calls[0][0] == "https://api.kcisa.kr/openapi/API_CIA_081/request"
 
-    page2 = client.recommended_travel_destinations(num_of_rows=1)
+    page2 = await client.recommended_travel_destinations(num_of_rows=1)
     assert page2.items[0].name == "신규 시설"
     assert session.calls[1][0] == "https://api.kcisa.kr/openapi/API_TOU_046/request"
 
     # dynamic timeout 검증
-    client.leisure_classes(timeout=15.5)
+    (await client.leisure_classes(timeout=15.5))
     assert session.last_timeout == 15.5
 
 
@@ -378,7 +341,7 @@ async def test_async_culture_client_new_helpers_and_dynamic_timeout():
     """
     session = AsyncFakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
 
-    async with AsyncCultureOpenApiClient("secret-key", session=session) as client:
+    async with CultureOpenApiClient("secret-key", session=session) as client:
         page1 = await client.leisure_classes(num_of_rows=1)
         assert page1.items[0].name == "비동기 신규 시설"
         assert session.calls[0][0] == "https://api.kcisa.kr/openapi/API_CIA_081/request"
@@ -387,95 +350,6 @@ async def test_async_culture_client_new_helpers_and_dynamic_timeout():
         assert page2.items[0].name == "비동기 신규 시설"
         assert session.calls[1][0] == "https://api.kcisa.kr/openapi/API_TOU_046/request"
         assert session.last_timeout == 8.8
-
-
-def test_file_client_save_rustfs(tmp_path, monkeypatch):
-    import sys
-    import unittest.mock
-
-    session = RoutedFakeSession(
-        {
-            _LEISURE_CLASSES_DETAIL_URL: FakeResponse(_LEISURE_CLASSES_DETAIL_HTML),
-            _LEISURE_CLASSES_CSV_URL: FakeResponse("col1,col2\nval1,val2\n"),
-        }
-    )
-    client = FileDataClient(session=session)
-
-    mock_s3 = unittest.mock.MagicMock()
-    mock_boto3 = unittest.mock.MagicMock()
-    mock_boto3.client.return_value = mock_s3
-
-    # 동적 mocking
-    monkeypatch.setitem(sys.modules, "boto3", mock_boto3)
-    monkeypatch.setitem(sys.modules, "botocore", unittest.mock.MagicMock())
-    monkeypatch.setitem(sys.modules, "botocore.config", unittest.mock.MagicMock())
-
-    monkeypatch.setenv("MCST_RUSTFS_ENDPOINT_URL", "http://test-rustfs:9000")
-    monkeypatch.setenv("MCST_RUSTFS_BUCKET", "test-bucket")
-
-    local_path = tmp_path / "test_data.csv"
-
-    saved_path = client.save_rustfs(
-        "leisure_classes_csv",
-        local_path,
-        object_key="custom_key.csv",
-    )
-
-    assert saved_path == local_path
-    assert local_path.read_text() == "col1,col2\nval1,val2\n"
-
-    mock_boto3.client.assert_called_once()
-    mock_s3.put_object.assert_called_once_with(
-        Bucket="test-bucket",
-        Key="custom_key.csv",
-        Body=b"col1,col2\nval1,val2\n",
-        ContentType="text/csv",
-    )
-
-
-@pytest.mark.asyncio
-async def test_async_file_client_save_rustfs(tmp_path, monkeypatch):
-    import sys
-    import unittest.mock
-
-    session = AsyncRoutedFakeSession(
-        {
-            _LEISURE_CLASSES_DETAIL_URL: FakeResponse(_LEISURE_CLASSES_DETAIL_HTML),
-            _LEISURE_CLASSES_CSV_URL: FakeResponse("col1,col2\nval1,val2\n"),
-        }
-    )
-
-    mock_s3 = unittest.mock.MagicMock()
-    mock_boto3 = unittest.mock.MagicMock()
-    mock_boto3.client.return_value = mock_s3
-
-    # 동적 mocking
-    monkeypatch.setitem(sys.modules, "boto3", mock_boto3)
-    monkeypatch.setitem(sys.modules, "botocore", unittest.mock.MagicMock())
-    monkeypatch.setitem(sys.modules, "botocore.config", unittest.mock.MagicMock())
-
-    monkeypatch.setenv("MCST_RUSTFS_ENDPOINT_URL", "http://test-rustfs:9000")
-    monkeypatch.setenv("MCST_RUSTFS_BUCKET", "test-bucket")
-
-    local_path = tmp_path / "test_data_async.csv"
-
-    async with AsyncFileDataClient(session=session) as client:
-        saved_path = await client.save_rustfs(
-            "leisure_classes_csv",
-            local_path,
-            object_key="custom_key_async.csv",
-        )
-
-    assert saved_path == local_path
-    assert local_path.read_text() == "col1,col2\nval1,val2\n"
-
-    mock_boto3.client.assert_called_once()
-    mock_s3.put_object.assert_called_once_with(
-        Bucket="test-bucket",
-        Key="custom_key_async.csv",
-        Body=b"col1,col2\nval1,val2\n",
-        ContentType="text/csv",
-    )
 
 
 @pytest.mark.asyncio
@@ -500,17 +374,99 @@ async def test_async_file_client_save_offloads_disk_write_to_thread(tmp_path, mo
     call_threads: list[threading.Thread] = []
     real_write_file = file_data_module._write_file
 
-    def _tracking_write_file(target: object, data: object) -> None:
+    def _tracking_write_file(target: object, data: object, **kwargs) -> None:
         call_threads.append(threading.current_thread())
-        real_write_file(target, data)  # type: ignore[arg-type]
+        real_write_file(target, data, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(file_data_module, "_write_file", _tracking_write_file)
 
     local_path = tmp_path / "test_offload.csv"
-    async with AsyncFileDataClient(session=session) as client:
+    async with FileDataClient(session=session) as client:
         saved_path = await client.save("leisure_classes_csv", local_path)
 
     assert saved_path == local_path
     assert local_path.read_text() == "col1,col2\nval1,val2\n"
     assert len(call_threads) == 1
     assert call_threads[0] is not main_thread
+
+
+@pytest.mark.parametrize("name", ["custom_key.csv", "custom_key.bin"])
+async def test_file_client_save_rustfs_native_async_put(tmp_path, name):
+    import hashlib
+
+    import httpx
+
+    from mcst import AsyncTokenBucket
+
+    class Bucket(AsyncTokenBucket):
+        count = 0
+
+        async def acquire(self):
+            await super().acquire()
+            self.count += 1
+
+    budget = Bucket(1000)
+    sent = []
+    data = b"col1,col2\nval1,val2\n"
+
+    def handler(request):
+        sent.append((request, budget.count))
+        if request.method == "PUT":
+            return httpx.Response(200)
+        if str(request.url) == _LEISURE_CLASSES_DETAIL_URL:
+            return httpx.Response(200, text=_LEISURE_CLASSES_DETAIL_HTML)
+        assert str(request.url) == _LEISURE_CLASSES_CSV_URL
+        return httpx.Response(200, content=data)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as session:
+        async with FileDataClient(session=session, rate_limiter=budget) as client:
+            saved = await client.save_rustfs(
+                "leisure_classes_csv",
+                tmp_path / name,
+                object_key=name,
+                endpoint_url="http://test-rustfs:9000",
+                bucket="test-bucket",
+                access_key_id="synthetic-access",
+                secret_access_key="synthetic-secret",
+            )
+        assert not session.is_closed
+    assert saved.read_bytes() == data
+    assert [count for _, count in sent] == [1, 2, 3]
+    request = sent[-1][0]
+    assert request.url.path == "/test-bucket/" + name
+    assert request.content == data
+    assert request.headers["x-amz-content-sha256"] == hashlib.sha256(data).hexdigest()
+    assert request.headers["authorization"].startswith(
+        "AWS4-HMAC-SHA256 Credential=synthetic-access/"
+    )
+    assert request.headers["content-type"] == (
+        "text/csv" if name.endswith(".csv") else "application/octet-stream"
+    )
+
+
+async def test_data_go_client_throttles_sequential_requests(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from mcst import AsyncTokenBucket, _ratelimit
+
+    now = [1000.0]
+    sleeps = []
+
+    async def sleep(delay):
+        sleeps.append(delay)
+        now[0] += delay
+
+    monkeypatch.setattr(_ratelimit, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(
+        _ratelimit,
+        "asyncio",
+        SimpleNamespace(Lock=asyncio.Lock, sleep=sleep, get_running_loop=asyncio.get_running_loop),
+    )
+    session = FakeSession(FakeResponse('{"page":1,"perPage":1,"totalCount":0,"data":[]}'))
+    async with DataGoFileApiClient(
+        "secret-key", session=session, rate_limiter=AsyncTokenBucket(2, capacity=1)
+    ) as client:
+        await client.public_libraries(per_page=1)
+        await client.public_libraries(per_page=1)
+    assert sleeps == [0.5]

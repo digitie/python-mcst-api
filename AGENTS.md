@@ -72,7 +72,7 @@
 - `mcst.culture`: `culture.go.kr`/KCISA OpenAPI 클라이언트입니다.
 - `mcst.data_go`: 공공데이터포털 ODCloud 자동변환 파일 API 클라이언트입니다.
 - `mcst.file_data`: 직접 파일 다운로드와 CSV 파싱 헬퍼입니다.
-- `mcst.client`: 상위 편의 클라이언트입니다. `debug_fetch()`/`adebug_fetch()`는
+- `mcst.client`: 상위 편의 클라이언트입니다. `await debug_fetch()`는
   데이터셋별 하드코딩 분기 없이 카탈로그 `kind`로 `culture`/`data_go` 하위
   클라이언트를 라우팅하는 제네릭 디버그 실행 진입점입니다.
 - `mcst.debug`: Web UI나 로컬 디버그 도구가 쓸 `DebugRun`, 민감정보 마스킹,
@@ -115,6 +115,7 @@ python -m mypy src/mcst
 실제 서비스를 검증할 때만 live 테스트를 실행합니다.
 
 ```bash
+$env:MCST_RUN_LIVE = "1"
 python -m pytest -m live
 ```
 

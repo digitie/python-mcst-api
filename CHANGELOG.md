@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### 변경 (2026-09-14)
+
+- 모든 공개 클라이언트를 canonical 이름의 비동기 전용 API로 통합했다.
+  `Async*`, `.aio()`, `adebug_fetch()`, 동기 close/컨텍스트는 제거했다.
+- 동일 `AsyncTokenBucket`을 기본 5 TPS로 적용하고 하위 클라이언트와
+  재시도·리디렉션·파일 상세/다운로드 GET·RustFS PUT이 예산을 공유한다.
+- RustFS를 네이티브 HTTPX SigV4 PUT으로 전환했다. boto3와 암묵적
+  AWS profile/IMDS 탐색을 제거하고 명시적/환경 변수 자격증명을 사용한다.
+- 파일 쓰기·CSV 파싱을 이벤트 루프 밖에서 실행하고 반복 취소 시 작업 완료를
+  기다린다. overwrite=False는 파일 생성 경쟁에서도 덮어쓰지 않는다.
+- 실제 요청 키를 공개 오류·DebugRun의 모든 필드에서 마스킹한다.
+- UI 및 문서 예제를 await/async with/async for로 변경하고 live 실행을
+  `MCST_RUN_LIVE=1`로 명시적으로 제한했다.
+
+아래 항목은 이 통합 이전 변경 이력이며 현재 사용법은 README와 ADR-5를 따른다.
 ### Fixed
 - asyncio 전환 재검증을 위한 2인 적대적 리뷰어 서브에이전트(동시성/자원관리 관점, 보안/데이터
   무결성 관점) 감사에서 발견·검증된 버그 2건 수정:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 import json
 import os
 import sys
@@ -156,9 +157,7 @@ def _raw_response_tab(
 
     key_prefix = f"{kind.value}:{entry['slug']}"
     try:
-        submitted, params, keyword, page_no, num_of_rows, missing = _request_form(
-            entry, key_prefix
-        )
+        submitted, params, keyword, page_no, num_of_rows, missing = _request_form(entry, key_prefix)
     except ValueError as exc:
         st.error(str(exc))
         return
@@ -178,9 +177,27 @@ def _raw_response_tab(
         st.error("serviceKey가 비어 있습니다. Auth 섹션에서 입력하거나 env를 사용하세요.")
         return
 
-    client = McstClient(service_keys={entry["slug"]: api_key}, timeout=timeout, retries=0)
-    try:
-        run = client.debug_fetch(
+    run = asyncio.run(_fetch_debug(entry, api_key, timeout, params, keyword, page_no, num_of_rows))
+
+    _store_run(kind, entry, run)
+    if run.error:
+        st.error(run.error.get("message", "요청이 실패했습니다."))
+    st.json(jsonable(run.response))
+
+
+async def _fetch_debug(
+    entry: dict[str, Any],
+    api_key: str,
+    timeout: float,
+    params: dict[str, Any],
+    keyword: str | None,
+    page_no: int,
+    num_of_rows: int,
+) -> DebugRun:
+    async with McstClient(
+        service_keys={entry["slug"]: api_key}, timeout=timeout, retries=0
+    ) as client:
+        return await client.debug_fetch(
             entry["slug"],
             params=params,
             keyword=keyword,
@@ -188,13 +205,6 @@ def _raw_response_tab(
             num_of_rows=num_of_rows,
             timeout=timeout,
         )
-    finally:
-        client.close()
-
-    _store_run(kind, entry, run)
-    if run.error:
-        st.error(run.error.get("message", "요청이 실패했습니다."))
-    st.json(jsonable(run.response))
 
 
 def _request_form(
@@ -299,8 +309,7 @@ def _render_common_options(key_prefix: str) -> tuple[int, int]:
             value=10,
             step=1,
             help=(
-                "페이지당 row 수입니다"
-                "(ODCloud data source에서는 내부적으로 perPage로 매핑됩니다)."
+                "페이지당 row 수입니다(ODCloud data source에서는 내부적으로 perPage로 매핑됩니다)."
             ),
             key=f"{key_prefix}:numOfRows",
         )
@@ -464,9 +473,7 @@ def _fixture_tab(fixture_base_dir: str, kind: DatasetKind, entry: dict[str, Any]
 
 def _service_key_links(entry: dict[str, Any]) -> None:
     st.sidebar.caption("Service key links")
-    st.sidebar.link_button(
-        "서비스키 발급/활용신청", entry["detail_url"], use_container_width=True
-    )
+    st.sidebar.link_button("서비스키 발급/활용신청", entry["detail_url"], use_container_width=True)
     spec_url = entry.get("spec_url")
     if spec_url and spec_url != entry["detail_url"]:
         st.sidebar.link_button("API 명세서", spec_url, use_container_width=True)

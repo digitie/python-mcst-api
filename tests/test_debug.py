@@ -29,7 +29,7 @@ class FakeSession:
         self.response = response
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def get(
+    async def get(
         self,
         url: str,
         *,
@@ -40,7 +40,7 @@ class FakeSession:
         return self.response
 
 
-def test_culture_debug_request_redacts_key_and_saves_fixture(tmp_path):
+async def test_culture_debug_request_redacts_key_and_saves_fixture(tmp_path):
     xml = """
     <response>
       <header><resultCode>00</resultCode><resultMsg>OK</resultMsg></header>
@@ -60,7 +60,7 @@ def test_culture_debug_request_redacts_key_and_saves_fixture(tmp_path):
     session = FakeSession(FakeResponse(xml, headers={"Content-Type": "application/xml"}))
     client = CultureOpenApiClient("secret-key", session=session)
 
-    debug_run = client.debug_request("leisure_activity_facilities", num_of_rows=1)
+    debug_run = await client.debug_request("leisure_activity_facilities", num_of_rows=1)
 
     assert debug_run.error is None
     assert debug_run.function == "culture.leisure_activity_facilities"
@@ -84,14 +84,14 @@ def test_culture_debug_request_redacts_key_and_saves_fixture(tmp_path):
         save_fixture(debug_run, base_dir=tmp_path, case_name="Secret Case")
 
 
-def test_data_go_debug_request_uses_fixture_function_name():
+async def test_data_go_debug_request_uses_fixture_function_name():
     response = FakeResponse(
         '{"page":1,"perPage":1,"totalCount":1,"data":[{"도서관명":"시립 도서관"}]}',
         headers={"Content-Type": "application/json"},
     )
     client = DataGoFileApiClient("secret-key", session=FakeSession(response))
 
-    debug_run = client.debug_request("public_libraries", per_page=1)
+    debug_run = await client.debug_request("public_libraries", per_page=1)
 
     assert debug_run.error is None
     assert debug_run.function == "data_go.public_libraries"

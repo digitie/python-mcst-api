@@ -9,24 +9,23 @@ ODCloud 식별자(`public_data_pk`)가 있는 항목에만 사용하며 서비�
 from __future__ import annotations
 
 import os
-import time
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Mapping
 from types import TracebackType
 from typing import Any
 
-from ._http import AsyncOdcloudHttp, AsyncSessionLike, OdcloudHttp, SessionLike
+from ._http import OdcloudHttp, SessionLike
+from ._ratelimit import AsyncTokenBucket
+from ._redact import credential_values, redact_debug, redact_exception
 from .catalog import ALL_DATASETS, CatalogEntry, DatasetKind, get_dataset
 from .debug import DebugRun, error_to_dict, processed_page
-from .exceptions import McstAuthError, McstRequestError
+from .exceptions import McstAuthError, McstError, McstRequestError
 from .models import Page, RawRecord
 
-DEFAULT_ENV_NAMES = (
-    "DATA_GO_KR_SERVICE_KEY",
-)
+DEFAULT_ENV_NAMES = ("DATA_GO_KR_SERVICE_KEY",)
 
 
 class DataGoFileApiClient:
-    """파일데이터에서 생성된 data.go.kr ODCloud API 클라이언트입니다."""
+    """data.go.kr 자동변환 파일 API 비동기 클라이언트입니다."""
 
     def __init__(
         self,
@@ -37,274 +36,24 @@ class DataGoFileApiClient:
         retries: int = 3,
         session: SessionLike | None = None,
         max_rps: float = 5.0,
+        rate_limiter: AsyncTokenBucket | None = None,
     ) -> None:
         self.service_key = _clean_service_key(service_key) or _first_env(DEFAULT_ENV_NAMES)
         self.service_keys = _clean_service_keys(service_keys)
+        self.rate_limiter = rate_limiter if rate_limiter is not None else AsyncTokenBucket(max_rps)
         self._http = OdcloudHttp(
             service_key=self.service_key,
             timeout=timeout,
             retries=retries,
             session=session,
-        )
-        self.max_rps = max_rps
-        self._min_request_interval = 1.0 / max_rps if max_rps > 0 else 0.0
-        self._next_request_at = 0.0
-        self.closed = False
-
-    def _throttle(self) -> None:
-        if self._min_request_interval <= 0:
-            return
-        now = time.monotonic()
-        wait_for = self._next_request_at - now
-        if wait_for > 0:
-            time.sleep(wait_for)
-            now = time.monotonic()
-        self._next_request_at = now + self._min_request_interval
-
-    def __enter__(self) -> DataGoFileApiClient:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def close(self) -> None:
-        self._http.close()
-        self.closed = True
-
-    @classmethod
-    def aio(
-        cls,
-        service_key: str | None = None,
-        *,
-        service_keys: Mapping[str, str] | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
-        session: AsyncSessionLike | None = None,
-        max_rps: float = 5.0,
-    ) -> AsyncDataGoFileApiClient:
-        return AsyncDataGoFileApiClient(
-            service_key=service_key,
-            service_keys=service_keys,
-            timeout=timeout,
-            retries=retries,
-            session=session,
             max_rps=max_rps,
-        )
-
-    @classmethod
-    def from_env(cls, **kwargs: Any) -> DataGoFileApiClient:
-        return cls(**kwargs)
-
-    def datasets(self) -> tuple[CatalogEntry, ...]:
-        """ODCloud API 식별자를 가진 파일데이터 항목을 반환합니다."""
-
-        return tuple(
-            entry
-            for entry in ALL_DATASETS.values()
-            if entry.kind != DatasetKind.LINK
-            and entry.public_data_pk
-            and entry.public_data_detail_pk
-        )
-
-    def service_key_for(self, dataset: str | CatalogEntry) -> str | None:
-        """데이터셋/API별 서비스키를 반환합니다."""
-
-        entry = _resolve_odcloud(dataset)
-        return self.service_keys.get(entry.slug) or self.service_key
-
-    def request(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        page_no: int = 1,
-        per_page: int = 10,
-        params: Mapping[str, Any] | None = None,
-    ) -> Page[RawRecord]:
-        """파일데이터의 data.go.kr 자동변환 API를 호출합니다."""
-
-        entry = _resolve_odcloud(dataset)
-        if not entry.public_data_pk or not entry.public_data_detail_pk:
-            raise McstRequestError(f"{entry.slug} does not have ODCloud identifiers")
-        _validate_page(page_no=page_no, per_page=per_page)
-        service_key = self._require_service_key(entry)
-        self._throttle()
-        payload = self._http.get_page(
-            entry.public_data_pk,
-            entry.public_data_detail_pk,
-            page_no=page_no,
-            per_page=per_page,
-            params=params,
-            service_key=service_key,
-        )
-        return Page(
-            items=payload.items,
-            page_no=payload.page_no,
-            num_of_rows=payload.num_of_rows,
-            total_count=payload.total_count,
-            raw=payload.raw,
-            endpoint=f"{entry.public_data_pk}/{entry.public_data_detail_pk}",
-        )
-
-    def debug_request(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        page_no: int = 1,
-        per_page: int = 10,
-        params: Mapping[str, Any] | None = None,
-    ) -> DebugRun:
-        """UI fixture 생성에 사용할 ODCloud 디버그 실행 결과를 반환합니다."""
-
-        dataset_name = dataset.slug if isinstance(dataset, CatalogEntry) else dataset
-        input_data: dict[str, Any] = {
-            "dataset": dataset_name,
-            "page_no": page_no,
-            "per_page": per_page,
-            "params": dict(params or {}),
-        }
-        function_name = f"data_go.{dataset_name}"
-        trace = ["ODCloud 카탈로그 항목 확인", "요청 파라미터 구성", "응답 파싱 및 Page 모델 생성"]
-        try:
-            entry = _resolve_odcloud(dataset)
-            function_name = f"data_go.{entry.slug}"
-            if not entry.public_data_pk or not entry.public_data_detail_pk:
-                raise McstRequestError(f"{entry.slug} does not have ODCloud identifiers")
-            _validate_page(page_no=page_no, per_page=per_page)
-            service_key = self._require_service_key(entry)
-            payload, request_data, response_data = self._http.get_debug_page(
-                entry.public_data_pk,
-                entry.public_data_detail_pk,
-                page_no=page_no,
-                per_page=per_page,
-                params=params,
-                service_key=service_key,
-            )
-            page: Page[RawRecord] = Page(
-                items=payload.items,
-                page_no=payload.page_no,
-                num_of_rows=payload.num_of_rows,
-                total_count=payload.total_count,
-                raw=payload.raw,
-                endpoint=f"{entry.public_data_pk}/{entry.public_data_detail_pk}",
-            )
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request=request_data,
-                response=response_data,
-                parsed=page,
-                processed=processed_page(page),
-                trace=tuple(trace),
-            )
-        except Exception as exc:
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request={},
-                response={},
-                parsed=None,
-                processed=None,
-                trace=tuple(trace),
-                error=error_to_dict(exc),
-            )
-
-    def iter_items(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        page_no: int = 1,
-        per_page: int = 100,
-        max_pages: int | None = None,
-        max_items: int | None = None,
-        params: Mapping[str, Any] | None = None,
-    ) -> Iterator[RawRecord]:
-        """여러 페이지의 레코드를 순회합니다."""
-
-        yielded = 0
-        current_page = page_no
-        seen_pages = 0
-        while True:
-            page = self.request(
-                dataset,
-                page_no=current_page,
-                per_page=per_page,
-                params=params,
-            )
-            if not page.items:
-                return
-            for item in page.items:
-                yield item
-                yielded += 1
-                if max_items is not None and yielded >= max_items:
-                    return
-            seen_pages += 1
-            if max_pages is not None and seen_pages >= max_pages:
-                return
-            if page.total_count is not None and yielded >= page.total_count:
-                return
-            current_page += 1
-
-    def public_libraries(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("public_libraries", **kwargs)
-
-    def tourism_lodging_status(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("tourism_lodging_status", **kwargs)
-
-    def hotels_status(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("hotels_status", **kwargs)
-
-    def public_sports_facilities(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("public_sports_facilities", **kwargs)
-
-    def registered_sports_businesses(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("registered_sports_businesses", **kwargs)
-
-    def marathon_events(self, **kwargs: Any) -> Page[RawRecord]:
-        return self.request("marathon_events", **kwargs)
-
-    def _require_service_key(self, entry: CatalogEntry) -> str:
-        service_key = self.service_key_for(entry)
-        if service_key:
-            return service_key
-        raise McstAuthError(
-            f"service_key is required for dataset {entry.slug!r}. "
-            "Pass service_key=... for a default key, or "
-            f"service_keys={{{entry.slug!r}: '...'}} for an API-specific key.",
-            endpoint=entry.public_data_pk,
-            failure_kind="auth",
-        )
-
-
-class AsyncDataGoFileApiClient:
-    """data.go.kr 자동변환 파일 API 비동기 클라이언트입니다."""
-
-    def __init__(
-        self,
-        service_key: str | None = None,
-        *,
-        service_keys: Mapping[str, str] | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
-        session: AsyncSessionLike | None = None,
-        max_rps: float = 5.0,
-    ) -> None:
-        self.service_key = _clean_service_key(service_key) or _first_env(DEFAULT_ENV_NAMES)
-        self.service_keys = _clean_service_keys(service_keys)
-        self._http = AsyncOdcloudHttp(
-            service_key=self.service_key,
-            timeout=timeout,
-            retries=retries,
-            session=session,
-            max_rps=max_rps,
+            rate_limiter=self.rate_limiter,
         )
         self.closed = False
 
-    async def __aenter__(self) -> AsyncDataGoFileApiClient:
+    async def __aenter__(self) -> DataGoFileApiClient:
+        if self.closed:
+            raise RuntimeError("client is closed")
         return self
 
     async def __aexit__(
@@ -320,7 +69,7 @@ class AsyncDataGoFileApiClient:
         self.closed = True
 
     @classmethod
-    def from_env(cls, **kwargs: Any) -> AsyncDataGoFileApiClient:
+    def from_env(cls, **kwargs: Any) -> DataGoFileApiClient:
         return cls(**kwargs)
 
     def datasets(self) -> tuple[CatalogEntry, ...]:
@@ -350,27 +99,34 @@ class AsyncDataGoFileApiClient:
     ) -> Page[RawRecord]:
         """파일데이터의 data.go.kr 자동변환 API를 비동기로 호출합니다."""
 
-        entry = _resolve_odcloud(dataset)
-        if not entry.public_data_pk or not entry.public_data_detail_pk:
-            raise McstRequestError(f"{entry.slug} does not have ODCloud identifiers")
-        _validate_page(page_no=page_no, per_page=per_page)
-        service_key = self._require_service_key(entry)
-        payload = await self._http.get_page(
-            entry.public_data_pk,
-            entry.public_data_detail_pk,
-            page_no=page_no,
-            per_page=per_page,
-            params=params,
-            service_key=service_key,
-        )
-        return Page(
-            items=payload.items,
-            page_no=payload.page_no,
-            num_of_rows=payload.num_of_rows,
-            total_count=payload.total_count,
-            raw=payload.raw,
-            endpoint=f"{entry.public_data_pk}/{entry.public_data_detail_pk}",
-        )
+        try:
+            entry = _resolve_odcloud(dataset)
+            if not entry.public_data_pk or not entry.public_data_detail_pk:
+                raise McstRequestError(f"{entry.slug} does not have ODCloud identifiers")
+            _validate_page(page_no=page_no, per_page=per_page)
+            service_key = self._require_service_key(entry)
+            payload = await self._http.get_page(
+                entry.public_data_pk,
+                entry.public_data_detail_pk,
+                page_no=page_no,
+                per_page=per_page,
+                params=params,
+                service_key=service_key,
+            )
+            return Page(
+                items=payload.items,
+                page_no=payload.page_no,
+                num_of_rows=payload.num_of_rows,
+                total_count=payload.total_count,
+                raw=payload.raw,
+                endpoint=f"{entry.public_data_pk}/{entry.public_data_detail_pk}",
+            )
+
+        except McstError as exc:
+            redact_exception(
+                exc, self.service_key or "", *self.service_keys.values(), *credential_values(params)
+            )
+            raise exc from None
 
     async def debug_request(
         self,
@@ -414,25 +170,35 @@ class AsyncDataGoFileApiClient:
                 raw=payload.raw,
                 endpoint=f"{entry.public_data_pk}/{entry.public_data_detail_pk}",
             )
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request=request_data,
-                response=response_data,
-                parsed=page,
-                processed=processed_page(page),
-                trace=tuple(trace),
+            return redact_debug(
+                DebugRun(
+                    function=function_name,
+                    input=input_data,
+                    request=request_data,
+                    response=response_data,
+                    parsed=page,
+                    processed=processed_page(page),
+                    trace=tuple(trace),
+                ),
+                self.service_key or "",
+                *self.service_keys.values(),
+                *credential_values(params),
             )
         except Exception as exc:
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request={},
-                response={},
-                parsed=None,
-                processed=None,
-                trace=tuple(trace),
-                error=error_to_dict(exc),
+            return redact_debug(
+                DebugRun(
+                    function=function_name,
+                    input=input_data,
+                    request={},
+                    response={},
+                    parsed=None,
+                    processed=None,
+                    trace=tuple(trace),
+                    error=error_to_dict(exc),
+                ),
+                self.service_key or "",
+                *self.service_keys.values(),
+                *credential_values(params),
             )
 
     async def iter_items(

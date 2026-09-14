@@ -9,15 +9,16 @@ data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를 요구합니다. cult
 from __future__ import annotations
 
 import os
-import time
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Mapping
 from types import TracebackType
 from typing import Any
 
-from ._http import AsyncKcisaHttp, AsyncSessionLike, KcisaHttp, SessionLike
+from ._http import KcisaHttp, SessionLike
+from ._ratelimit import AsyncTokenBucket
+from ._redact import credential_values, redact_debug, redact_exception
 from .catalog import CULTURE_OPEN_APIS, CatalogEntry, DatasetKind, get_dataset
 from .debug import DebugRun, error_to_dict, processed_page
-from .exceptions import McstAuthError, McstNoDataError, McstRequestError
+from .exceptions import McstAuthError, McstError, McstNoDataError, McstRequestError
 from .models import CultureRecord, Page
 
 # api.kcisa.kr는 data.go.kr 발급 키가 아닌 KCISA 전용 키를 요구하므로
@@ -32,7 +33,7 @@ _DEFAULT_MAX_PAGES = 1000
 
 
 class CultureOpenApiClient:
-    """culture.go.kr의 선별된 KCISA OpenAPI 엔드포인트 클라이언트입니다.
+    """culture.go.kr의 선별된 KCISA OpenAPI 비동기 클라이언트입니다.
 
     주의: `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를
     요구합니다. `service_key`/`KCISA_SERVICE_KEY`로 KCISA 키를 전달하세요;
@@ -49,327 +50,24 @@ class CultureOpenApiClient:
         retries: int = 3,
         session: SessionLike | None = None,
         max_rps: float = 5.0,
+        rate_limiter: AsyncTokenBucket | None = None,
     ) -> None:
         self.service_key = _clean_service_key(service_key) or _first_env(DEFAULT_ENV_NAMES)
         self.service_keys = _clean_service_keys(service_keys)
+        self.rate_limiter = rate_limiter if rate_limiter is not None else AsyncTokenBucket(max_rps)
         self._http = KcisaHttp(
             service_key=self.service_key,
             timeout=timeout,
             retries=retries,
             session=session,
-        )
-        self.max_rps = max_rps
-        self._min_request_interval = 1.0 / max_rps if max_rps > 0 else 0.0
-        self._next_request_at = 0.0
-        self.closed = False
-
-    def _throttle(self) -> None:
-        if self._min_request_interval <= 0:
-            return
-        now = time.monotonic()
-        wait_for = self._next_request_at - now
-        if wait_for > 0:
-            time.sleep(wait_for)
-            now = time.monotonic()
-        self._next_request_at = now + self._min_request_interval
-
-    def __enter__(self) -> CultureOpenApiClient:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def close(self) -> None:
-        self._http.close()
-        self.closed = True
-
-    @classmethod
-    def aio(
-        cls,
-        service_key: str | None = None,
-        *,
-        service_keys: Mapping[str, str] | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
-        session: AsyncSessionLike | None = None,
-        max_rps: float = 5.0,
-    ) -> AsyncCultureOpenApiClient:
-        return AsyncCultureOpenApiClient(
-            service_key=service_key,
-            service_keys=service_keys,
-            timeout=timeout,
-            retries=retries,
-            session=session,
             max_rps=max_rps,
-        )
-
-    @classmethod
-    def from_env(
-        cls,
-        name: str = "KCISA_SERVICE_KEY",
-        *,
-        fallback_names: tuple[str, ...] = ("DATA_GO_KR_SERVICE_KEY",),
-        **kwargs: Any,
-    ) -> CultureOpenApiClient:
-        """환경변수에서 서비스키를 읽어 클라이언트를 생성합니다.
-
-        `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 키가 필요하므로
-        기본으로 `KCISA_SERVICE_KEY`를 읽습니다. `DATA_GO_KR_SERVICE_KEY`는
-        fallback으로만 사용되며 대부분 인증에 실패합니다.
-        """
-
-        service_key = _clean_service_key(os.getenv(name)) or _first_env(fallback_names)
-        return cls(service_key=service_key, **kwargs)
-
-    def datasets(self) -> tuple[CatalogEntry, ...]:
-        """지원하는 KCISA OpenAPI 카탈로그 항목을 반환합니다."""
-
-        return tuple(CULTURE_OPEN_APIS.values())
-
-    def service_key_for(self, dataset: str | CatalogEntry) -> str | None:
-        """데이터셋/API별 서비스키를 반환합니다.
-
-        `service_keys`에 slug별 키가 있으면 우선 사용하고, 없으면 기존 단일
-        `service_key` 값을 fallback으로 사용합니다.
-        """
-
-        entry = _resolve_open_api(dataset)
-        return self.service_keys.get(entry.slug) or self.service_key
-
-    def request(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        keyword: str | None = None,
-        page_no: int = 1,
-        num_of_rows: int = 10,
-        params: Mapping[str, Any] | None = None,
-        timeout: float | None = None,
-    ) -> Page[CultureRecord]:
-        """선별된 KCISA OpenAPI 데이터셋을 호출합니다."""
-
-        entry = _resolve_open_api(dataset)
-        if not entry.endpoint_url:
-            raise McstRequestError(f"{entry.slug} does not have an endpoint URL")
-        _validate_page(page_no=page_no, num_of_rows=num_of_rows)
-        service_key = self._require_service_key(entry)
-        self._throttle()
-        payload = self._http.get_page(
-            entry.endpoint_url,
-            page_no=page_no,
-            num_of_rows=num_of_rows,
-            keyword=keyword,
-            params=params,
-            service_key=service_key,
-            timeout=timeout,
-        )
-        return Page(
-            items=tuple(CultureRecord.from_row(row) for row in payload.items),
-            page_no=payload.page_no,
-            num_of_rows=payload.num_of_rows,
-            total_count=payload.total_count,
-            raw=payload.raw,
-            endpoint=entry.endpoint_url,
-        )
-
-    def debug_request(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        keyword: str | None = None,
-        page_no: int = 1,
-        num_of_rows: int = 10,
-        params: Mapping[str, Any] | None = None,
-        timeout: float | None = None,
-    ) -> DebugRun:
-        """UI fixture 생성에 사용할 KCISA 디버그 실행 결과를 반환합니다."""
-
-        dataset_name = dataset.slug if isinstance(dataset, CatalogEntry) else dataset
-        input_data: dict[str, Any] = {
-            "dataset": dataset_name,
-            "keyword": keyword,
-            "page_no": page_no,
-            "num_of_rows": num_of_rows,
-            "params": dict(params or {}),
-        }
-        function_name = f"culture.{dataset_name}"
-        trace = ["KCISA 카탈로그 항목 확인", "요청 파라미터 구성", "응답 파싱 및 Page 모델 생성"]
-        try:
-            entry = _resolve_open_api(dataset)
-            function_name = f"culture.{entry.slug}"
-            if not entry.endpoint_url:
-                raise McstRequestError(f"{entry.slug} does not have an endpoint URL")
-            _validate_page(page_no=page_no, num_of_rows=num_of_rows)
-            service_key = self._require_service_key(entry)
-            payload, request_data, response_data = self._http.get_debug_page(
-                entry.endpoint_url,
-                page_no=page_no,
-                num_of_rows=num_of_rows,
-                keyword=keyword,
-                params=params,
-                service_key=service_key,
-                timeout=timeout,
-            )
-            page: Page[CultureRecord] = Page(
-                items=tuple(CultureRecord.from_row(row) for row in payload.items),
-                page_no=payload.page_no,
-                num_of_rows=payload.num_of_rows,
-                total_count=payload.total_count,
-                raw=payload.raw,
-                endpoint=entry.endpoint_url,
-            )
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request=request_data,
-                response=response_data,
-                parsed=page,
-                processed=processed_page(page),
-                trace=tuple(trace),
-            )
-        except Exception as exc:
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request={},
-                response={},
-                parsed=None,
-                processed=None,
-                trace=tuple(trace),
-                error=error_to_dict(exc),
-            )
-
-    def iter_items(
-        self,
-        dataset: str | CatalogEntry,
-        *,
-        keyword: str | None = None,
-        page_no: int = 1,
-        num_of_rows: int = 100,
-        max_pages: int | None = _DEFAULT_MAX_PAGES,
-        max_items: int | None = None,
-        params: Mapping[str, Any] | None = None,
-    ) -> Iterator[CultureRecord]:
-        """여러 페이지의 레코드를 순회합니다."""
-
-        yielded = 0
-        current_page = page_no
-        seen_pages = 0
-        last_raw_fingerprint: str | None = None
-        while True:
-            try:
-                page = self.request(
-                    dataset,
-                    keyword=keyword,
-                    page_no=current_page,
-                    num_of_rows=num_of_rows,
-                    params=params,
-                )
-            except McstNoDataError:
-                return
-            if not page.items:
-                return
-            raw_fingerprint = repr(page.raw)
-            if raw_fingerprint == last_raw_fingerprint:
-                return
-            last_raw_fingerprint = raw_fingerprint
-            for item in page.items:
-                yield item
-                yielded += 1
-                if max_items is not None and yielded >= max_items:
-                    return
-            seen_pages += 1
-            if max_pages is not None and seen_pages >= max_pages:
-                return
-            if page.total_count is not None and yielded >= page.total_count:
-                return
-            current_page += 1
-
-    def media_famous_places(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("media_famous_places", **kwargs)
-
-    def barrier_free_places(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("barrier_free_places", **kwargs)
-
-    def pet_friendly_culture_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("pet_friendly_culture_facilities", **kwargs)
-
-    def leisure_activity_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("leisure_activity_facilities", **kwargs)
-
-    def leisure_camping_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("leisure_camping_facilities", **kwargs)
-
-    def family_infant_culture_facilities(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("family_infant_culture_facilities", **kwargs)
-
-    def world_restaurants(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("world_restaurants", **kwargs)
-
-    def independent_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("independent_bookstores", **kwargs)
-
-    def cafe_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("cafe_bookstores", **kwargs)
-
-    def used_bookstores(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("used_bookstores", **kwargs)
-
-    def leisure_classes(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("leisure_classes", **kwargs)
-
-    def recommended_travel_destinations(self, **kwargs: Any) -> Page[CultureRecord]:
-        return self.request("recommended_travel_destinations", **kwargs)
-
-    def _require_service_key(self, entry: CatalogEntry) -> str:
-        service_key = self.service_key_for(entry)
-        if service_key:
-            return service_key
-        raise McstAuthError(
-            f"service_key is required for dataset {entry.slug!r}. "
-            "Pass service_key=... for a default key, or "
-            f"service_keys={{{entry.slug!r}: '...'}} for an API-specific key.",
-            endpoint=entry.endpoint_url,
-            failure_kind="auth",
-        )
-
-
-class AsyncCultureOpenApiClient:
-    """culture.go.kr의 선별된 KCISA OpenAPI 비동기 클라이언트입니다.
-
-    주의: `api.kcisa.kr`는 data.go.kr 발급 키가 아닌 KCISA 전용 발급 키를
-    요구합니다. `service_key`/`KCISA_SERVICE_KEY`로 KCISA 키를 전달하세요;
-    `DATA_GO_KR_SERVICE_KEY`는 fallback으로만 사용되며 대부분 인증에
-    실패합니다.
-    """
-
-    def __init__(
-        self,
-        service_key: str | None = None,
-        *,
-        service_keys: Mapping[str, str] | None = None,
-        timeout: float = 10.0,
-        retries: int = 3,
-        session: AsyncSessionLike | None = None,
-        max_rps: float = 5.0,
-    ) -> None:
-        self.service_key = _clean_service_key(service_key) or _first_env(DEFAULT_ENV_NAMES)
-        self.service_keys = _clean_service_keys(service_keys)
-        self._http = AsyncKcisaHttp(
-            service_key=self.service_key,
-            timeout=timeout,
-            retries=retries,
-            session=session,
-            max_rps=max_rps,
+            rate_limiter=self.rate_limiter,
         )
         self.closed = False
 
-    async def __aenter__(self) -> AsyncCultureOpenApiClient:
+    async def __aenter__(self) -> CultureOpenApiClient:
+        if self.closed:
+            raise RuntimeError("client is closed")
         return self
 
     async def __aexit__(
@@ -385,8 +83,16 @@ class AsyncCultureOpenApiClient:
         self.closed = True
 
     @classmethod
-    def from_env(cls, **kwargs: Any) -> AsyncCultureOpenApiClient:
-        return cls(**kwargs)
+    def from_env(
+        cls,
+        name: str = "KCISA_SERVICE_KEY",
+        *,
+        fallback_names: tuple[str, ...] = ("DATA_GO_KR_SERVICE_KEY",),
+        **kwargs: Any,
+    ) -> CultureOpenApiClient:
+        """지정한 환경 변수와 폴백에서 키를 읽어 클라이언트를 생성합니다."""
+        service_key = _clean_service_key(os.getenv(name)) or _first_env(fallback_names)
+        return cls(service_key=service_key, **kwargs)
 
     def datasets(self) -> tuple[CatalogEntry, ...]:
         """지원하는 KCISA OpenAPI 카탈로그 항목을 반환합니다."""
@@ -411,28 +117,35 @@ class AsyncCultureOpenApiClient:
     ) -> Page[CultureRecord]:
         """선별된 KCISA OpenAPI 데이터셋을 비동기로 호출합니다."""
 
-        entry = _resolve_open_api(dataset)
-        if not entry.endpoint_url:
-            raise McstRequestError(f"{entry.slug} does not have an endpoint URL")
-        _validate_page(page_no=page_no, num_of_rows=num_of_rows)
-        service_key = self._require_service_key(entry)
-        payload = await self._http.get_page(
-            entry.endpoint_url,
-            page_no=page_no,
-            num_of_rows=num_of_rows,
-            keyword=keyword,
-            params=params,
-            service_key=service_key,
-            timeout=timeout,
-        )
-        return Page(
-            items=tuple(CultureRecord.from_row(row) for row in payload.items),
-            page_no=payload.page_no,
-            num_of_rows=payload.num_of_rows,
-            total_count=payload.total_count,
-            raw=payload.raw,
-            endpoint=entry.endpoint_url,
-        )
+        try:
+            entry = _resolve_open_api(dataset)
+            if not entry.endpoint_url:
+                raise McstRequestError(f"{entry.slug} does not have an endpoint URL")
+            _validate_page(page_no=page_no, num_of_rows=num_of_rows)
+            service_key = self._require_service_key(entry)
+            payload = await self._http.get_page(
+                entry.endpoint_url,
+                page_no=page_no,
+                num_of_rows=num_of_rows,
+                keyword=keyword,
+                params=params,
+                service_key=service_key,
+                timeout=timeout,
+            )
+            return Page(
+                items=tuple(CultureRecord.from_row(row) for row in payload.items),
+                page_no=payload.page_no,
+                num_of_rows=payload.num_of_rows,
+                total_count=payload.total_count,
+                raw=payload.raw,
+                endpoint=entry.endpoint_url,
+            )
+
+        except McstError as exc:
+            redact_exception(
+                exc, self.service_key or "", *self.service_keys.values(), *credential_values(params)
+            )
+            raise exc from None
 
     async def debug_request(
         self,
@@ -480,25 +193,35 @@ class AsyncCultureOpenApiClient:
                 raw=payload.raw,
                 endpoint=entry.endpoint_url,
             )
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request=request_data,
-                response=response_data,
-                parsed=page,
-                processed=processed_page(page),
-                trace=tuple(trace),
+            return redact_debug(
+                DebugRun(
+                    function=function_name,
+                    input=input_data,
+                    request=request_data,
+                    response=response_data,
+                    parsed=page,
+                    processed=processed_page(page),
+                    trace=tuple(trace),
+                ),
+                self.service_key or "",
+                *self.service_keys.values(),
+                *credential_values(params),
             )
         except Exception as exc:
-            return DebugRun(
-                function=function_name,
-                input=input_data,
-                request={},
-                response={},
-                parsed=None,
-                processed=None,
-                trace=tuple(trace),
-                error=error_to_dict(exc),
+            return redact_debug(
+                DebugRun(
+                    function=function_name,
+                    input=input_data,
+                    request={},
+                    response={},
+                    parsed=None,
+                    processed=None,
+                    trace=tuple(trace),
+                    error=error_to_dict(exc),
+                ),
+                self.service_key or "",
+                *self.service_keys.values(),
+                *credential_values(params),
             )
 
     async def iter_items(

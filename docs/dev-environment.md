@@ -76,6 +76,7 @@ python -m mypy src/mcst
 $env:DATA_GO_KR_SERVICE_KEY = "발급받은_실제_서비스_키"
 
 # 2. live 마커가 붙은 통합 테스트만 선별 실행
+$env:MCST_RUN_LIVE = "1"
 python -m pytest -m live
 ```
 

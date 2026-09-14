@@ -73,21 +73,21 @@ def _file_download_entry(*, file_url: str | None) -> CatalogEntry:
     )
 
 
-def test_resolve_file_url_falls_back_to_static_file_url():
+async def test_resolve_file_url_falls_back_to_static_file_url():
     entry = _file_download_entry(file_url="https://example.com/static.csv")
     session = RoutedFakeSession({entry.detail_url: FakeResponse("<html>링크 없음</html>")})
     client = FileDataClient(session=session)
 
-    assert client.resolve_file_url(entry) == "https://example.com/static.csv"
+    assert (await client.resolve_file_url(entry)) == "https://example.com/static.csv"
 
 
-def test_resolve_file_url_raises_parse_error_without_link_or_fallback():
+async def test_resolve_file_url_raises_parse_error_without_link_or_fallback():
     entry = _file_download_entry(file_url=None)
     session = RoutedFakeSession({entry.detail_url: FakeResponse("<html>링크 없음</html>")})
     client = FileDataClient(session=session)
 
     with pytest.raises(McstParseError):
-        client.resolve_file_url(entry)
+        (await client.resolve_file_url(entry))
 
 
 def test_file_client_datasets_include_file_download_entries():
@@ -107,7 +107,7 @@ class HttpxSemanticsFakeSession:
         self.routes = routes
         self.calls: list[str] = []
 
-    def get(
+    async def get(
         self,
         url: str,
         *,
@@ -130,7 +130,7 @@ class HttpxSemanticsFakeSession:
             raise AssertionError(f"unexpected URL in fake session: {url}") from None
 
 
-def test_get_response_preserves_url_query_when_no_params():
+async def test_get_response_preserves_url_query_when_no_params():
     """#9 회귀: 빈 params가 detail_url의 query를 박탈해 빈 셸 페이지가 오던 버그.
 
     httpx 의미론 fake로, params 없는 ``get_response`` 호출이 URL query를
@@ -147,7 +147,7 @@ def test_get_response_preserves_url_query_when_no_params():
     )
     client = FileDataClient(session=session)
 
-    rows = client.read_csv(entry)
+    rows = await client.read_csv(entry)
 
     assert rows == [{"h1": "v1", "h2": "v2"}]
     assert session.calls[0] == entry.detail_url  # query 보존
