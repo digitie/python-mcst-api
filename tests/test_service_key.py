@@ -6,12 +6,12 @@ from mcst import CultureOpenApiClient, DataGoFileApiClient
 
 
 class FailingSession:
-    def get(self, url, *, params=None, timeout=10.0):  # noqa: ANN001
+    async def get(self, url, *, params=None, timeout=10.0):  # noqa: ANN001
         raise httpx.ConnectError(
             "HTTPSConnectionPool(host='api.kcisa.kr', port=443): "
             "Max retries exceeded with url: "
             "/openapi/API_CIA_090/request?serviceKey=abc-123 "
-            "(Caused by NameResolutionError(\"getaddrinfo failed\"))"
+            '(Caused by NameResolutionError("getaddrinfo failed"))'
         )
 
 
@@ -20,14 +20,14 @@ def test_direct_service_key_is_stripped():
     assert DataGoFileApiClient(service_key="\n'abc-123'\t").service_key == "abc-123"
 
 
-def test_network_error_is_classified_and_redacted_in_debug_run():
+async def test_network_error_is_classified_and_redacted_in_debug_run():
     client = CultureOpenApiClient(
         service_key="  abc-123  ",
         retries=0,
         session=FailingSession(),
     )
 
-    debug_run = client.debug_request("cafe_bookstores")
+    debug_run = await client.debug_request("cafe_bookstores")
 
     assert debug_run.error
     assert debug_run.error["type"] == "McstNetworkError"
