@@ -436,15 +436,20 @@ CULTURE_FILE_DATASETS: dict[str, CatalogEntry] = {
         provider="한국문화정보원",
         kind=DatasetKind.FILE_DOWNLOAD,
         source=SourcePortal.CULTURE_GO_KR,
+        # 2026-08-15 재등록으로 원천이 이동했다: fileDataNo 282 -> 484.
+        # 282 상세는 지금도 HTTP 200이지만 **빈 껍데기**다 — 데이터명도
+        # `fnFileDwld(...)` 호출부도 없어 링크를 찾을 수 없다(2026-09-19 실측).
+        # 484는 `API_CIA_103_20260815182049.csv` 링크와 데이터명을 모두 준다.
+        #
+        # 쿼리는 `dataType=BATCH`만 있으면 열린다. 종전의 중복 `category`와
+        # `orderBy=dwldCnt`는 잡음이라 함께 걷어낸다.
         detail_url=(
             "https://www.culture.go.kr/data/filedat/filedatDtl.do"
-            "?fileDataNo=00000000000000000282&category=C&orderBy=dwldCnt"
-            "&category=H&dataType=BATCH"
+            "?fileDataNo=00000000000000000484&category=H&dataType=BATCH"
         ),
-        spec_url=(
-            "https://www.culture.go.kr/data/openapi/openapiView.do"
-            "?id=537&keyword=%EC%95%84%EB%8F%99%EC%84%9C%EC%A0%90&searchField=all&gubun=A"
-        ),
+        # 종전 `spec_url`(openapiView id=537)은 HTTP 500이다(2026-09-19 실측).
+        # 죽은 링크를 들고 있느니 비워 둔다 — 상세 페이지가 정본이다.
+        spec_url=None,
         update_cycle="연간",
         tags=("leisure", "bookstore", "operation", "poi", "csv"),
         notes=(
