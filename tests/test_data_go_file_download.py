@@ -412,3 +412,9 @@ async def test_form_network_failure_is_not_retried_and_redacts_credentials():
     assert len(requests) == 1
     assert fixture_key not in str(captured.value)
     assert fixture_key not in str(vars(captured.value))
+
+
+def test_golf_quoted_multiline_extra_value_is_preserved():
+    raw = COLUMNS + ',설명\n서울,검증골프장,사업자,서울,123,18,일반,"첫 줄\n둘째 줄"\n'
+    rows = _parse_csv_rows(raw.encode(), "golf_courses_status", None)
+    assert len(rows) == 1 and rows[0]["설명"] == "첫 줄\n둘째 줄"
