@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 파일 승인·ZIP 골프장 자료 복구 (2026-11-04)
+
+- 현재 data.go.kr 파일 버튼의 metadata POST와 다운로드 직전 승인 확인을 지원한다.
+- 승인 전 리디렉션·불명확한 CAPTCHA 판정·제어 불가 주입 세션을 송신 전에 거부한다.
+  승인 경로는 HTTPX 세션을 사용하며 일반 문화 CSV의 GET 전용 주입은 유지한다.
+- ZIP의 최단 깊이 유일 후보를 선택하고 골프장 7열을 검증해 데이터사전 오적재를 막는다.
+  모호한 ZIP·HTML 응답은 오류로 표시하며 추가 열·BOM·CSV 내부 줄바꿈은 보존한다.
+
+
 ### 변경 (2026-09-14)
 
 - 모든 공개 클라이언트를 canonical 이름의 비동기 전용 API로 통합했다.

@@ -59,14 +59,18 @@ async def test_live_odcloud_public_libraries_and_debug():
         and entry.slug not in {"public_sports_facilities", "registered_sports_businesses"}
     ],
 )
-async def test_live_file_csv(slug):
+async def test_live_file_csv(slug, record_property):
     async with FileDataClient(timeout=30, retries=0) as client:
         rows = await client.read_csv(slug)
     assert rows, f"{slug}: 빈 파일"
+    if slug == "golf_courses_status":
+        assert {"지역", "이름", "사업자", "소재지", "면적(제곱미터)", "홀", "구분"} <= set(rows[0])
+        record_property("csv_row_count", len(rows))
+        record_property("csv_headers", list(rows[0]))
+
     assert len(rows[0]) >= 2, f"{slug}: 복수 CSV 컬럼 없음"
     assert all(
-        isinstance(key, str) and not key.lstrip().startswith(("<", "{", "["))
-        for key in rows[0]
+        isinstance(key, str) and not key.lstrip().startswith(("<", "{", "[")) for key in rows[0]
     ), f"{slug}: CSV 대신 HTML/XML/JSON 오류 본문 또는 잘못된 컬럼 수 수신"
 
 

@@ -505,7 +505,10 @@ CULTURE_FILE_DATASETS: dict[str, CatalogEntry] = {
         public_data_pk="15118920",
         public_data_detail_pk="uddi:0e5b12d2-1cc8-4caf-ba96-c2c7d1ef8d83",
         tags=("leisure", "golf", "csv"),
-        notes="명세서 페이지 없음 — data.go.kr fileData 페이지의 업데이트 주기 실측값.",
+        notes=(
+            "명세서 페이지 없음 — data.go.kr fileData 페이지의 업데이트 주기 실측값. "
+            "파일 메타데이터/승인 확인 후 ZIP의 유일한 최단 경로 CSV와 골프장 필수 7열을 검증."
+        ),
     ),
 }
 

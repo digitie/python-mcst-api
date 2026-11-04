@@ -37,10 +37,18 @@ from .exceptions import (
 
 
 class ResponseLike(Protocol):
-    status_code: int
-    text: str
-    content: bytes
-    headers: Mapping[str, str]
+    # HTTPX 응답의 읽기 전용 속성과 기존 fake의 일반 속성을 함께 허용한다.
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def content(self) -> bytes: ...
+
+    @property
+    def headers(self) -> Mapping[str, str]: ...
 
     def json(self) -> Any: ...
 
@@ -86,7 +94,7 @@ def build_session() -> SessionLike:
 
 
 class HttpClient:
-    """공통 오류 처리, 재시도, rate limit을 포함한 비동기 GET 호출 래퍼입니다."""
+    """공통 오류 처리·GET 재시도·동일 TPS와 단일 form POST를 제공하는 HTTP 엔진입니다."""
 
     def __init__(
         self,
@@ -123,6 +131,16 @@ class HttpClient:
         self._validate_session(self._session)
         return self._session
 
+    def _native_approval_session(self, result_code: str) -> httpx.AsyncClient:
+        session = self._ready()
+        if not isinstance(session, httpx.AsyncClient):
+            raise McstRequestError(
+                "파일 승인 경로에는 리디렉션을 제어할 수 있는 httpx.AsyncClient가 필요합니다.",
+                result_code=result_code,
+                failure_kind="request",
+            )
+        return session
+
     def _before_send(self) -> None:
         self._ready()
 
@@ -144,12 +162,17 @@ class HttpClient:
         *,
         service_key: str | None = None,
         timeout: float | None = None,
+        follow_redirects: bool | None = None,
     ) -> ResponseLike:
         try:
             active_service_key = service_key or self.service_key
             active_timeout = timeout if timeout is not None else self.timeout
             query = without_none(params or {})
-            self._ready()
+            if follow_redirects is False:
+                self._native_approval_session("SESSION_REDIRECT_UNSUPPORTED")
+            else:
+                self._ready()
+            response: ResponseLike
             for attempt in range(self.retries + 1):
                 await self.rate_limiter.acquire()
                 session = self._ready()
@@ -159,7 +182,11 @@ class HttpClient:
                             "GET", url, params=query or None, timeout=active_timeout
                         )
                         response = await send_after_token(
-                            session, request, self.rate_limiter, before_send=self._before_send
+                            session,
+                            request,
+                            self.rate_limiter,
+                            before_send=self._before_send,
+                            follow_redirects=follow_redirects,
                         )
                     elif query:
                         response = await session.get(url, params=query, timeout=active_timeout)
@@ -177,6 +204,15 @@ class HttpClient:
                     await close_response(response)
                     await _sleep_before_retry(attempt, retry_after)
                     continue
+                if follow_redirects is False and 300 <= response.status_code < 400:
+                    await close_response(response)
+                    raise McstRequestError(
+                        "파일 승인 과정의 리디렉션은 따르지 않습니다.",
+                        endpoint=url,
+                        status_code=response.status_code,
+                        result_code="FILE_APPROVAL_REDIRECT",
+                        failure_kind="request",
+                    )
                 _raise_for_status(response, endpoint=url, service_key=active_service_key)
                 return response
             raise AssertionError("unreachable")
@@ -187,6 +223,51 @@ class HttpClient:
                 service_key or "",
                 self.service_key or "",
                 *credential_values(params),
+                *credential_values(dict(parse_qsl(urlsplit(url).query))),
+            )
+            raise exc from None
+
+    async def post_form_json(self, url: str, data: Mapping[str, Any]) -> Any:
+        """같은 세션·TPS로 form POST JSON을 읽는다. 자동 재시도·리디렉션은 없다."""
+        try:
+            session = self._native_approval_session("SESSION_POST_UNSUPPORTED")
+            await self.rate_limiter.acquire()
+            try:
+                request = session.build_request("POST", url, data=data, timeout=self.timeout)
+                response = await send_after_token(
+                    session,
+                    request,
+                    self.rate_limiter,
+                    before_send=self._before_send,
+                    follow_redirects=False,
+                )
+            except httpx.HTTPError as exc:
+                raise _network_error(url, exc, self.service_key) from None
+            try:
+                if 300 <= response.status_code < 400:
+                    raise McstRequestError(
+                        "파일 승인 과정의 리디렉션은 따르지 않습니다.",
+                        endpoint=url,
+                        status_code=response.status_code,
+                        result_code="FILE_APPROVAL_REDIRECT",
+                        failure_kind="request",
+                    )
+                _raise_for_status(response, endpoint=url, service_key=self.service_key)
+                try:
+                    return response.json()
+                except ValueError:
+                    raise McstParseError(
+                        "파일 승인 응답이 유효한 JSON이 아닙니다.",
+                        endpoint=url,
+                        failure_kind="parse",
+                    ) from None
+            finally:
+                await close_response(response)
+        except McstError as exc:
+            redact_exception(
+                exc,
+                self.service_key or "",
+                *credential_values(data),
                 *credential_values(dict(parse_qsl(urlsplit(url).query))),
             )
             raise exc from None

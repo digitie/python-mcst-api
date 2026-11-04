@@ -1,0 +1,25 @@
+{
+  "source": "https://www.data.go.kr/data/15118920/fileData.do",
+  "sdk_revision": "159e2a3dd0f9085686339a97597279e8f593bfc8",
+  "explicit_live_guard": true,
+  "api_key_supplied": false,
+  "production_access": false,
+  "public_sdk_read_csv_success": true,
+  "row_count": 541,
+  "headers": [
+    "지역",
+    "이름",
+    "사업자",
+    "소재지",
+    "면적(제곱미터)",
+    "홀",
+    "구분",
+    "행정구역_시도코드",
+    "행정구역_시도명(현행)",
+    "구_시도명_사용",
+    "행정구역_시군구코드",
+    "행정구역_시군구명",
+    "행정구역_시군구_상태",
+    "법정동코드(10자리)"
+  ]
+}

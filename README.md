@@ -88,6 +88,27 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+### data.go.kr 파일 승인과 ZIP CSV
+
+data.go.kr의 현재 파일 버튼은 메타데이터 form POST로 첨부 식별자·파일명을 해석한다.
+실제 다운로드 직전에 check-limit.json을 호출하고 needCaptcha가 정확히 false일 때만
+진행한다. CAPTCHA가 필요하면 CAPTCHA_REQUIRED, 판정이 불명확하면 DOWNLOAD_CHECK_FAILED를
+반환한다. CAPTCHA를 풀거나 우회하는 기능은 없다.
+
+상세페이지와 승인 POST의 리디렉션은 FILE_APPROVAL_REDIRECT로 거부하고 POST는 자동
+재시도하지 않는다. 승인 후 파일 GET·기존 문화 CSV GET의 리디렉션/재시도는 유지한다.
+모든 실제 요청은 같은 세션·쿠키·TPS 버킷을 사용한다.
+
+이 승인 경로에 세션을 주입하려면 httpx.AsyncClient를 사용해야 한다.
+제어할 수 없는 세션은 첫 요청 전에 SESSION_REDIRECT_UNSUPPORTED 또는
+SESSION_POST_UNSUPPORTED로 거부한다. 일반 문화 CSV의 기존 GET 전용 주입 세션은 지원한다.
+
+ZIP은 가장 얕은 경로의 CSV 후보가 하나일 때만 선택한다. 같은 깊이에 여러 후보가
+있으면 AMBIGUOUS_CSV로 거부한다. 가장 얕다는 이유만으로 모든 원천의 본자료임을
+보장하지는 않는다. golf_courses_status는 지역·이름·사업자·소재지·면적(제곱미터)·홀·구분의
+7열을 추가로 검증해 데이터사전 오선택을 막고 추가 행정코드 열은 보존한다.
+HTML 응답을 빈 CSV 성공으로 처리하지 않는다.
+
 ## 비동기 API 및 TPS 설정
 
 `McstClient`, `CultureOpenApiClient`, `DataGoFileApiClient`, `FileDataClient`는
@@ -123,7 +144,7 @@ if __name__ == "__main__":
 `rate_limiter`를 주입하면 그 버킷의 설정을 사용합니다. 하나의 `McstClient` 안에서
 culture·ODCloud·파일 클라이언트가 같은 버킷을 공유합니다. 여러 클라이언트에도
 같은 버킷을 주입할 수 있으며, 사용 범위는 하나의 이벤트 루프입니다.
-최초 요청, 각 재시도, 각 리디렉션, 파일 상세페이지/다운로드 GET, RustFS PUT마다
+최초 요청, 각 재시도, 각 리디렉션, 파일 상세페이지/다운로드 GET·승인 POST, RustFS PUT마다
 한 토큰을 소비합니다. 재시도 대기도 `asyncio.sleep`을 사용합니다.
 
 내부 HTTPX 세션은 첫 요청 때 생성하고 종료 시 닫습니다. 주입한 비동기 세션은

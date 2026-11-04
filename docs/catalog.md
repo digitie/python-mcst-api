@@ -88,6 +88,15 @@ if __name__ == "__main__":
 
 ## 파일 다운로드
 
+data.go.kr 파일은 현재 버튼의 메타데이터 POST 및 다운로드 직전 승인 확인을 사용한다.
+needCaptcha=false 이외에는 중단하며 승인 단계 리디렉션을 따르지 않는다.
+이 경로의 주입 세션은 httpx.AsyncClient여야 한다. 문화 CSV의 기존 GET 계약은 같다.
+
+ZIP은 가장 얕은 유일한 CSV 후보를 선택하고 동률은 거부한다. 골프장 원천은 7개 필수 열을
+검증해 동봉 데이터사전을 구분한다. 추가 열은 보존하며 파일명·날짜·행 수를 고정하지 않는다.
+상세 사용법과 오류 코드는 README의 data.go.kr 파일 승인 절을 따른다.
+
+
 | slug | 공식 데이터셋명 | 제공기관 | 원천 |
 | --- | --- | --- | --- |
 | `recommended_travel_destinations_csv` | 문화체육관광부_추천여행지 | 문화체육관광부 | https://www.culture.go.kr/data/filedat/filedatDtl.do?fileDataNo=00000000000000000299&category=D&orderBy=dwldCnt&category=G&dataType=BATCH |
