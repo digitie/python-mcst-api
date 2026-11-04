@@ -8,9 +8,8 @@ CSV 링크를 얻은 뒤 받습니다. 서비스키는 필요 없습니다.
 - culture.go.kr `filedatDtl.do`: "파일 다운로드" 버튼의
   `onclick="fnFileDwld('https://big.kcisa.kr/common/bbsAtchFileDownload.do?...')"`
   에서 추출합니다.
-- data.go.kr `fileData.do`: 페이지에 박힌 JSON-LD `contentUrl`
-  (`https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=...`)에서
-  추출합니다.
+- data.go.kr fileData.do: 기존 직접 링크 또는 현재 파일 버튼의 메타데이터를 해석하고
+  다운로드 직전에 승인 결과를 확인합니다. 승인 과정의 리디렉션은 따르지 않습니다.
 """
 
 from __future__ import annotations
@@ -22,10 +21,10 @@ import io
 import re
 import zipfile
 from collections.abc import AsyncIterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Any
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit
 
 import httpx
 
@@ -41,6 +40,30 @@ _CULTURE_FILE_URL_RE = re.compile(r"https://big\.kcisa\.kr/common/bbsAtchFileDow
 _DATA_GO_FILE_URL_RE = re.compile(
     r"(?:https://www\.data\.go\.kr)?/cmm/cmm/fileDownload\.do\?[^'\"<>]*"
 )
+
+
+_DATA_GO_ORIGIN = "https://www.data.go.kr"
+_DATA_GO_METADATA = _DATA_GO_ORIGIN + "/tcs/dss/selectFileDataDownload.do"
+_DATA_GO_LIMIT = _DATA_GO_ORIGIN + "/cmm/cmm/check-limit.json"
+_DATA_GO_BUTTON_RE = re.compile(
+    r"fileDetailObj\.fn_fileDataDown\(\s*['\"]([^'\"]*)['\"]\s*,"
+    r"\s*['\"]([^'\"]*)['\"]\s*,\s*['\"]([^'\"]*)['\"]\s*,"
+    r"\s*['\"]([^'\"]*)['\"]\s*,\s*['\"]([^'\"]*)['\"]\s*\)"
+)
+_GOLF_CSV_COLUMNS = frozenset({"지역", "이름", "사업자", "소재지", "면적(제곱미터)", "홀", "구분"})
+
+
+def _portal_text(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return ""
+    return str(value).strip()
+
+
+def _is_data_go_download(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.hostname in {"www.data.go.kr", "data.go.kr"} and (
+        parts.path == "/cmm/cmm/fileDownload.do"
+    )
 
 
 def extract_download_url(page_html: str, page_url: str) -> str | None:
@@ -129,20 +152,120 @@ class FileDataClient:
         if entry.kind == DatasetKind.LINK:
             raise McstRequestError(f"{entry.slug} is a link entry, not a downloadable file")
         if entry.kind in _DOWNLOADABLE_KINDS:
-            page = await self._http.get_response(entry.detail_url)
+            data_go_page = urlsplit(entry.detail_url).hostname in {"www.data.go.kr", "data.go.kr"}
+            page = (
+                await self._http.get_response(entry.detail_url, follow_redirects=False)
+                if data_go_page
+                else await self._http.get_response(entry.detail_url)
+            )
             url = extract_download_url(page.text, entry.detail_url)
             if url:
                 return url
+            if data_go_page:
+                match = _DATA_GO_BUTTON_RE.search(html_module.unescape(page.text))
+                if match is not None:
+                    pk, detail_pk, file_id, serial, _file_type = match.groups()
+                    if (
+                        not pk.isdigit()
+                        or not detail_pk.strip()
+                        or (entry.public_data_pk is not None and pk != entry.public_data_pk)
+                    ):
+                        raise McstParseError(
+                            "파일 승인 버튼의 데이터셋 식별자가 올바르지 않습니다.",
+                            endpoint=entry.detail_url,
+                            failure_kind="parse",
+                        )
+                    return await self._resolve_data_go_file_url(
+                        {
+                            "publicDataPk": pk,
+                            "publicDataDetailPk": detail_pk,
+                            "atchFileId": file_id,
+                            "fileDetailSn": serial,
+                            "publicDataTyCode": "PR0051",
+                            "url": "/tcs/dss/selectFileDataDownload.do",
+                        }
+                    )
             return _fallback_file_url(entry)
         if entry.file_url:
             return entry.file_url
         raise McstRequestError(f"{entry.slug} does not have a file URL")
 
+    async def _resolve_data_go_file_url(self, form: dict[str, str]) -> str:
+        data = await self._http.post_form_json(_DATA_GO_METADATA, form)
+        info = data.get("dataSetFileDetailInfo") if isinstance(data, dict) else None
+        if (
+            not isinstance(data, dict)
+            or data.get("status") is not True
+            or not isinstance(info, dict)
+        ):
+            raise McstParseError(
+                "파일 다운로드 메타데이터가 유효하지 않습니다.",
+                endpoint=_DATA_GO_METADATA,
+                result_code="FILE_METADATA_INVALID",
+                failure_kind="parse",
+            )
+        file_id = _portal_text(data.get("atchFileId"))
+        serial = _portal_text(data.get("fileDetailSn"))
+        name = _portal_text(
+            info.get("publicDataSj" if info.get("publicDataTyDetailCode") == "DATY05" else "dataNm")
+        )
+        if not file_id or not serial or not name:
+            raise McstParseError(
+                "파일 다운로드 메타데이터의 필수 값이 없습니다.",
+                endpoint=_DATA_GO_METADATA,
+                result_code="FILE_METADATA_INVALID",
+                failure_kind="parse",
+            )
+        return (
+            _DATA_GO_ORIGIN
+            + "/cmm/cmm/fileDownload.do?"
+            + urlencode(
+                {
+                    "atchFileId": file_id,
+                    "fileDetailSn": serial,
+                    "dataNm": name,
+                }
+            )
+        )
+
+    async def _check_data_go_download(self, url: str) -> None:
+        query = parse_qs(urlsplit(url).query, keep_blank_values=True)
+        if any(
+            len(query.get(key, [])) != 1 or not query[key][0].strip()
+            for key in ("atchFileId", "fileDetailSn")
+        ):
+            raise McstParseError(
+                "파일 다운로드 승인에 필요한 식별자가 없거나 중복되었습니다.",
+                endpoint=_DATA_GO_LIMIT,
+                failure_kind="parse",
+            )
+        data = await self._http.post_form_json(
+            _DATA_GO_LIMIT, {key: query[key][0] for key in ("atchFileId", "fileDetailSn")}
+        )
+        if (
+            isinstance(data, dict)
+            and data.get("needCaptcha") is False
+            and ("status" not in data or data["status"] is True)
+        ):
+            return
+        captcha = isinstance(data, dict) and data.get("needCaptcha") is True
+        raise McstRequestError(
+            "파일 다운로드에 CAPTCHA 승인이 필요합니다."
+            if captcha
+            else "파일 다운로드 승인 결과를 확인할 수 없습니다.",
+            endpoint=_DATA_GO_LIMIT,
+            result_code="CAPTCHA_REQUIRED" if captcha else "DOWNLOAD_CHECK_FAILED",
+            failure_kind="request",
+        )
+
     async def download(self, dataset: str | CatalogEntry) -> bytes:
         """선별된 파일데이터 또는 연결 원천 URL을 비동기로 다운로드합니다."""
 
         entry = _resolve_download(dataset)
-        return await self._http.get_bytes(await self.resolve_file_url(entry))
+        url = await self.resolve_file_url(entry)
+        if _is_data_go_download(url):
+            await self._check_data_go_download(url)
+        return await self._http.get_bytes(url)
 
     async def save(
         self,
@@ -269,8 +392,21 @@ class FileDataClient:
 
 def _parse_csv_rows(raw: bytes, slug: str, encoding: str | None) -> list[dict[str, str]]:
     raw = _extract_csv_bytes(raw, slug)
-    text = _decode_csv_bytes(raw, encoding)
-    return [dict(row) for row in csv.DictReader(text.splitlines())]
+    text = _decode_csv_bytes(raw, encoding).removeprefix("\ufeff")
+    if text.lstrip().lstrip("\ufeff").lstrip().lower().startswith(("<!doctype html", "<html")):
+        raise McstParseError(
+            f"{slug}: CSV 대신 HTML 응답을 받았습니다.",
+            failure_kind="parse",
+            result_code="CSV_INVALID_CONTENT",
+        )
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    if slug == "golf_courses_status" and not _GOLF_CSV_COLUMNS <= set(reader.fieldnames or []):
+        raise McstParseError(
+            f"{slug}: 골프장 CSV의 필수 열이 없습니다.",
+            failure_kind="parse",
+            result_code="CSV_SCHEMA_MISMATCH",
+        )
+    return [dict(row) for row in reader]
 
 
 def _validate_rustfs_credentials(creds: dict[str, Any]) -> None:
@@ -314,14 +450,35 @@ def _extract_csv_bytes(data: bytes, slug: str) -> bytes:
         return data
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
-            if not csv_names:
+            candidates = [
+                member
+                for member in archive.infolist()
+                if not member.is_dir() and member.filename.lower().endswith(".csv")
+            ]
+            if not candidates:
                 raise McstParseError(
                     f"{slug}: downloaded zip archive has no CSV member",
                     failure_kind="parse",
                 )
-            return archive.read(csv_names[0])
-    except zipfile.BadZipFile as exc:
+            # 공통 포장 디렉터리는 유지해도 깊이 비교가 같다. 사전/코드북의 하위 CSV는 제외한다.
+            depths = [
+                len(PurePosixPath(member.filename.replace(chr(92), "/")).parts)
+                for member in candidates
+            ]
+            minimum_depth = min(depths)
+            shallowest = [
+                member
+                for member, depth in zip(candidates, depths, strict=True)
+                if depth == minimum_depth
+            ]
+            if len(shallowest) != 1:
+                raise McstParseError(
+                    f"{slug}: ZIP 본 CSV 후보가 여러 개입니다.",
+                    result_code="AMBIGUOUS_CSV",
+                    failure_kind="parse",
+                )
+            return archive.read(shallowest[0])
+    except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
         raise McstParseError(
             f"{slug}: downloaded file looked like a zip archive but could not be read",
             failure_kind="parse",
